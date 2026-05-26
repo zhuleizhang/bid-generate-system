@@ -254,7 +254,7 @@
         "Typecheck 通过"
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

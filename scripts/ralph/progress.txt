@@ -42,7 +42,7 @@ US-011 |   done  | 内容回写引擎与 Word/WPS 兼容验证
 US-012 |   done  | 项目 CRUD API
 US-013 |   done  | 文件上传 API（招标文件、公司资料）
 US-014 |   done  | 招标文件解析引擎（PDF + Word）
-US-015 | pending | 招标要求提取与结构化
+US-015 |   done  | 招标要求提取与结构化
 US-016 | pending | 标书任务拆解服务
 US-017 | pending | AIRevision 生成引擎
 US-018 | pending | 响应性检查服务
@@ -310,4 +310,24 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - DOCX 段落样式通过 para.style.name 获取，Heading 开头的样式名表示标题
   - 纯文本标题检测使用正则匹配行首模式 + 行长度 < 120 字符判断，避免将正文中出现的数字编号误判为标题
   - 后续 US-015（招标要求提取）将读取本接口的解析结果作为 LLM prompt 输入
+---
+
+## 2026-05-26 23:30 — US-015
+- 创建了 `app/models/requirement.py`：RequirementItem 和 RequirementExtractionResult Pydantic 模型
+- 创建了 `app/services/requirement_extraction_service.py`：招标要求提取引擎
+  - 从 document_versions 读取已解析的招标文件全文和章节结构
+  - 构建 LLM prompt 提取 8 种要求类型：项目基本信息、商务要求、技术要求、评分标准、废标项、资质要求、交付要求、格式要求
+  - 后处理逻辑：废标项自动标记 blocking + is_mandatory，is_mandatory 项提升 risk_level 为 high，修正 LLM 输出中的无效枚举值
+  - 全文截取前 12000 字符作为 prompt 输入，避免超 token 限制
+  - LLM 调用记录到 model_call_logs（scenario = 'requirement_extraction'）
+- 在 `app/gateway/supabase_gateway.py` 中新增 3 个方法：insert_requirements、get_requirements、delete_requirements_by_document
+- 在 `app/api/documents.py` 中新增 POST /api/documents/{doc_id}/extract-requirements 端点
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - 提取要求前文档必须关联到项目（project_id 非空），否则无法写入 requirements 表
+  - 文档需先调用 /parse-tender 解析，解析结果存储在 document_versions 表（version_type = 'parsed'）
+  - LLM JSON 解析复用 llm_classifier_service 的 _parse_llm_json_response 模式（3 层 fallback：直接解析、```json``` 代码块、裸 {}）
+  - _post_process_requirements 对 LLM 输出做归一化处理，防止无效枚举值写入数据库
+  - 后续 US-016（标书任务拆解）和 US-017（AIRevision 生成）直接依赖本接口的 requirements 数据
+  - 后续 US-022（招标解析结果展示）需在前端展示本接口提取的 requirements 列表
 ---
