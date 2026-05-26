@@ -1,9 +1,11 @@
 """文档 API — 文件上传、解包、解析、回写和下载端点。"""
 
+import io
 import json
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import Response
+import mammoth
 
 from app.services.document_service import process_docx_upload, parse_and_store_document, detect_and_store_sections
 from app.services.template_slot_service import generate_template_slots
@@ -211,6 +213,54 @@ async def generate_document_ai_revisions(doc_id: str):
         raise HTTPException(status_code=500, detail=f"AIRevision 生成失败: {str(e)}")
 
     return AIRevisionGenerationResult(**result)
+
+
+@documents_router.get("/{doc_id}/preview")
+async def preview_document(doc_id: str):
+    """将 DOCX 转为 HTML 预览，同时返回章节结构。
+
+    从 Supabase Storage 下载原始 DOCX 文件，使用 mammoth 转换为 HTML，
+    保留标题层级、加粗、列表和表格等基本格式。同时返回文档的章节树数据。
+    """
+    gw = SupabaseGateway()
+
+    doc = gw.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 仅 DOCX 文件支持预览
+    mime_type = doc.get("mime_type", "")
+    if "officedocument" not in mime_type and "openxmlformats" not in mime_type:
+        raise HTTPException(status_code=400, detail="仅支持 DOCX 文件预览")
+
+    file_path = doc.get("file_path", "")
+    if not file_path:
+        raise HTTPException(status_code=400, detail="文档缺少 file_path")
+
+    try:
+        file_bytes = gw.download_file_by_url(file_path)
+    except Exception:
+        raise HTTPException(status_code=500, detail="文件下载失败")
+
+    # mammoth 转换
+    try:
+        result = mammoth.convert_to_html(io.BytesIO(file_bytes))
+    except Exception:
+        raise HTTPException(status_code=500, detail="DOCX 转 HTML 失败")
+
+    html = result.value
+    messages = [str(m) for m in result.messages] if result.messages else []
+
+    # 获取章节结构
+    sections = gw.get_section_contents(doc_id)
+
+    return {
+        "document_id": doc_id,
+        "document_name": doc.get("name", ""),
+        "html": html,
+        "sections": sections,
+        "warnings": messages,
+    }
 
 
 @documents_router.get("/{doc_id}/ai-revisions")

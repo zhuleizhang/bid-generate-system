@@ -30,9 +30,11 @@ import {
   EditOutlined,
   DeleteOutlined,
   PlusOutlined,
+  FileTextOutlined,
+  ProjectOutlined,
 } from "@ant-design/icons";
 import type { UploadFile, RcFile } from "antd/es/upload/interface";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { api } from "@/lib/api";
 import type { Project } from "@/lib/types/project";
@@ -91,6 +93,7 @@ function formatFileSize(bytes: number): string {
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
@@ -632,6 +635,25 @@ export default function ProjectDetailPage() {
 
   return (
     <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          {project.name}
+        </Title>
+        <Space>
+          <Button
+            icon={<FileTextOutlined />}
+            onClick={() => router.push(`/projects/${id}/preview`)}
+          >
+            文档预览
+          </Button>
+          <Button
+            icon={<ProjectOutlined />}
+            onClick={() => router.push(`/projects/${id}/tasks`)}
+          >
+            任务看板
+          </Button>
+        </Space>
+      </div>
       <Tabs
         defaultActiveKey="files"
         items={[
