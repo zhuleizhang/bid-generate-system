@@ -32,6 +32,7 @@ import {
   PlusOutlined,
   FileTextOutlined,
   ProjectOutlined,
+  SafetyCertificateOutlined,
 } from "@ant-design/icons";
 import type { UploadFile, RcFile } from "antd/es/upload/interface";
 import { useParams, useRouter } from "next/navigation";
@@ -651,6 +652,12 @@ export default function ProjectDetailPage() {
             onClick={() => router.push(`/projects/${id}/tasks`)}
           >
             任务看板
+          </Button>
+          <Button
+            icon={<SafetyCertificateOutlined />}
+            onClick={() => router.push(`/projects/${id}/review`)}
+          >
+            响应检查
           </Button>
         </Space>
       </div>
