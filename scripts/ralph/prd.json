@@ -85,8 +85,8 @@
         "Typecheck 通过"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "使用 _temp_id/_temp_parent_id 临时 ID 机制处理父子关系，数据库插入后通过 order_index 排序对齐再回填 parent_node_id"
     },
     {
       "id": "US-006",

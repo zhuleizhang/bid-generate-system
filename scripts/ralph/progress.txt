@@ -17,9 +17,12 @@
 - JSONB 字段用于灵活扩展（metadata、related_requirement_ids），默认值使用 '[]' 或 '{}'
 - DOCX 文件本质是 ZIP 压缩包，使用 Python 标准库 zipfile 解包即可提取 word/document.xml、styles.xml、页眉页脚等 XML 部件
 - Supabase Storage 文件上传需在 upload() 的第三个参数中指定 content-type，否则默认 application/octet-stream
+- DOCX 解析使用 lxml + WordprocessingML 命名空间（http://schemas.openxmlformats.org/wordprocessingml/2006/main），所有标签查询需带命名空间前缀
+- 文档结构树的父子关系使用 _temp_id/_temp_parent_id 临时 ID 机制：解析时分配临时 ID，数据库插入后通过 order_index 排序对齐，再映射回填真实 parent_node_id
+- Supabase Storage 公开 URL 格式为 {SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}，通过公开 URL 下载需用 httpx 而非 Storage API
 
 ================================================================================
-CURRENT: US-005 — 构建 DOCX 文档结构树
+CURRENT: US-006 — 识别章节与标题层级
 STATUS:   pending
 ================================================================================
 
@@ -27,7 +30,7 @@ US-001 |   done  | 初始化 FastAPI 后端项目结构
 US-002 |   done  | 初始化 Next.js 前端项目结构
 US-003 |   done  | 创建完整数据库 Schema（所有表）
 US-004 |   done  | DOCX 上传、解包与存储 API
-US-005 | pending | 构建 DOCX 文档结构树
+US-005 |   done  | 构建 DOCX 文档结构树
 US-006 | pending | 识别章节与标题层级
 US-007 | pending | 识别表格结构与合并单元格
 US-008 | pending | 生成 TemplateSlot 可填充位置
@@ -123,4 +126,22 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 页眉页脚 XML 部件命名不规则（如 `word/header1.xml`、`word/footer2.xml`），通过文件名包含 `header`/`footer` 关键词模糊匹配
   - Supabase Storage 文件上传需要 content-type 选项，否则默认 application/octet-stream
   - 后续 US-005（构建文档结构树）将使用本故事提取的 XML 部件（word/document.xml）作为输入
+---
+
+## 2026-05-26 15:30 — US-005
+- 创建了 DOCX 解析引擎 `app/services/docx_parser.py`：基于 lxml 解析 WordprocessingML，遍历 w:body 下所有 w:p、w:tbl、w:sdt 元素
+- 创建了节点模型 `app/models/document_node.py`：DocumentNodeCreate、DocumentNodeResponse、ParseResult
+- 新增 API：POST /api/documents/{id}/parse（触发解析）、GET /api/documents/{id}/nodes（查询节点）
+- 解析引擎支持：段落（含样式提取：字体/字号/加粗/倾斜/段落样式/编号）、表格（含行列坐标、gridSpan/vMerge 合并检测）、sdt 结构化标签
+- 页眉/页脚作为独立分支纳入结构树（node_type = header/footer）
+- styles.xml 解析为 styleId → 属性映射，resolve 段落样式引用
+- 使用 _temp_id/_temp_parent_id 临时 ID 机制处理父子关系，插入后通过 order_index 排序对齐并回填 parent_node_id
+- SupabaseGateway 新增：insert_document_nodes（批量）、delete_document_nodes、get_document_nodes、update_node_parent、download_file_by_url
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - DOCX 中 w:sz 存储的是 half-points（半点），除以 2 得到 point 值
+  - 段落样式可能通过 w:pStyle 引用 styles.xml 中的样式定义，需 resolve 继承
+  - location_path 使用 _make_location_path 函数生成 XPath 风格路径，通过计算同级同名元素序号来定位
+  - 页眉/页脚 XML 结构是自包含的，需从自身根元素（通常是 w:hdr/w:ftr）开始构建 location_path
+  - 后续 US-006（章节识别）和 US-007（表格合并单元格）直接依赖本故事生成的 document_nodes
 ---
