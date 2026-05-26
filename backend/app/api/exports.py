@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 from app.gateway.supabase_gateway import SupabaseGateway
-from app.models.export_record import ExportResult
+from app.models.export_record import ExportResult, ExportRecordResponse
 from app.services.export_service import export_project_docx
 
 exports_router = APIRouter(prefix="/projects", tags=["exports"])
@@ -38,6 +38,27 @@ async def export_docx(
         )
 
     return ExportResult(**result)
+
+
+@exports_router.get("/{project_id}/exports", response_model=list[ExportRecordResponse])
+async def get_export_history(project_id: str):
+    """查询项目的导出历史记录，按时间倒序。"""
+    gw = SupabaseGateway()
+    records = gw.get_export_records(project_id)
+    return [
+        ExportRecordResponse(
+            id=r.get("id", ""),
+            project_id=r.get("project_id", ""),
+            document_id=r.get("document_id", ""),
+            exported_by=r.get("exported_by", ""),
+            file_path=r.get("file_path", ""),
+            file_size=r.get("file_size", 0),
+            revision_count=r.get("revision_count", 0),
+            status=r.get("status", "completed"),
+            created_at=r.get("created_at", ""),
+        )
+        for r in records
+    ]
 
 
 @exports_router.get("/{project_id}/export/download")

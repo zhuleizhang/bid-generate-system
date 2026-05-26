@@ -33,6 +33,8 @@ import {
   FileTextOutlined,
   ProjectOutlined,
   SafetyCertificateOutlined,
+  ExportOutlined,
+  DownloadOutlined,
 } from "@ant-design/icons";
 import type { UploadFile, RcFile } from "antd/es/upload/interface";
 import { useParams, useRouter } from "next/navigation";
@@ -61,6 +63,8 @@ import {
   RISK_LEVEL_COLORS,
   REQUIREMENT_TYPE_OPTIONS,
 } from "@/lib/types/requirement";
+import type { ExportRecordResponse } from "@/lib/types/export";
+import ExportModal from "@/components/ExportModal";
 
 const { Dragger } = Upload;
 const { Title, Text, Paragraph } = Typography;
@@ -115,6 +119,11 @@ export default function ProjectDetailPage() {
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addForm] = Form.useForm();
+
+  // 导出相关状态
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportHistory, setExportHistory] = useState<ExportRecordResponse[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // 加载项目详情、文件列表和招标要求
   useEffect(() => {
@@ -189,6 +198,21 @@ export default function ProjectDetailPage() {
       message.error("加载招标要求失败");
     } finally {
       setReqLoading(false);
+    }
+  }, [id]);
+
+  // 导出历史
+  const fetchExportHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await api.get<ExportRecordResponse[]>(
+        `/api/projects/${id}/exports`
+      );
+      setExportHistory(data);
+    } catch {
+      // 静默失败
+    } finally {
+      setHistoryLoading(false);
     }
   }, [id]);
 
@@ -634,6 +658,91 @@ export default function ProjectDetailPage() {
     </Card>
   );
 
+  // ── 导出记录 Tab ──────────────────────────────────────────────
+
+  const exportsTab = (
+    <Card
+      title="导出记录"
+      extra={
+        <Button
+          size="small"
+          icon={<ReloadOutlined />}
+          onClick={fetchExportHistory}
+          loading={historyLoading}
+        >
+          刷新
+        </Button>
+      }
+    >
+      {historyLoading && exportHistory.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 40 }}>
+          <Spin />
+        </div>
+      ) : exportHistory.length === 0 ? (
+        <Empty description="暂无导出记录">
+          <Button
+            type="primary"
+            icon={<ExportOutlined />}
+            onClick={() => setExportModalOpen(true)}
+          >
+            立即导出
+          </Button>
+        </Empty>
+      ) : (
+        <List
+          dataSource={exportHistory}
+          renderItem={(item) => (
+            <List.Item
+              actions={[
+                <Button
+                  key="download"
+                  type="link"
+                  icon={<DownloadOutlined />}
+                  onClick={() => {
+                    const downloadUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/projects/${id}/export/download`;
+                    const a = document.createElement("a");
+                    a.href = downloadUrl;
+                    a.download = "";
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                  }}
+                >
+                  下载
+                </Button>,
+              ]}
+            >
+              <List.Item.Meta
+                avatar={<FileTextOutlined style={{ fontSize: 24 }} />}
+                title={
+                  <Space>
+                    <Text strong>
+                      {item.created_at
+                        ? dayjs(item.created_at).format("YYYY-MM-DD HH:mm")
+                        : "-"}
+                    </Text>
+                    <Tag color="green">已完成</Tag>
+                  </Space>
+                }
+                description={
+                  <Space>
+                    <Text type="secondary">
+                      修订数：{item.revision_count}
+                    </Text>
+                    <Text type="secondary">
+                      文件大小：{formatFileSize(item.file_size)}
+                    </Text>
+                  </Space>
+                }
+              />
+            </List.Item>
+          )}
+          bordered
+        />
+      )}
+    </Card>
+  );
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -659,13 +768,27 @@ export default function ProjectDetailPage() {
           >
             响应检查
           </Button>
+          <Button
+            type="primary"
+            icon={<ExportOutlined />}
+            onClick={() => {
+              fetchExportHistory();
+              setExportModalOpen(true);
+            }}
+          >
+            导出
+          </Button>
         </Space>
       </div>
       <Tabs
         defaultActiveKey="files"
+        onChange={(key) => {
+          if (key === "exports") fetchExportHistory();
+        }}
         items={[
           { key: "files", label: "文件管理", children: filesTab },
           { key: "requirements", label: "招标要求", children: requirementsTab },
+          { key: "exports", label: "导出记录", children: exportsTab },
         ]}
       />
 
@@ -733,6 +856,15 @@ export default function ProjectDetailPage() {
           </Space>
         </Form>
       </Modal>
+
+      {/* 导出 Modal */}
+      <ExportModal
+        open={exportModalOpen}
+        projectId={id}
+        bidTemplates={files.filter((f) => f.document_type === "bid_template")}
+        onClose={() => setExportModalOpen(false)}
+        onSuccess={fetchExportHistory}
+      />
 
       {/* 添加 Modal */}
       <Modal
