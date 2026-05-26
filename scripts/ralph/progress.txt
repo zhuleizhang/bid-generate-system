@@ -43,7 +43,7 @@ US-012 |   done  | 项目 CRUD API
 US-013 |   done  | 文件上传 API（招标文件、公司资料）
 US-014 |   done  | 招标文件解析引擎（PDF + Word）
 US-015 |   done  | 招标要求提取与结构化
-US-016 | pending | 标书任务拆解服务
+US-016 |   done  | 标书任务拆解服务
 US-017 | pending | AIRevision 生成引擎
 US-018 | pending | 响应性检查服务
 US-019 | pending | DOCX 最终导出服务
@@ -330,4 +330,25 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - _post_process_requirements 对 LLM 输出做归一化处理，防止无效枚举值写入数据库
   - 后续 US-016（标书任务拆解）和 US-017（AIRevision 生成）直接依赖本接口的 requirements 数据
   - 后续 US-022（招标解析结果展示）需在前端展示本接口提取的 requirements 列表
+---
+
+## 2026-05-26 23:40 — US-016
+- 创建了 `app/models/bid_task.py`：BidTaskItem、TaskDecompositionResult Pydantic 模型
+- 创建了 `app/services/bid_task_service.py`：任务拆解引擎
+  - 第一步：按 requirement_type 映射基础 task_type（8 种映射关系）
+  - 第二步：关键词检测特殊任务类型（报价/项目案例/人员材料/偏离表），4 组关键词规则
+  - 第三步：按敏感度确定 assignee_type（报价/资质/偏离表 → human_required，商务标/技术标 → ai_then_human，格式检查 → ai）
+  - 第四步：写入 bid_tasks 表（先清除旧的拆解结果）
+- 创建了 `app/api/bid_tasks.py`：
+  - POST /api/projects/{project_id}/decompose-tasks — 触发任务拆解
+  - GET /api/projects/{project_id}/tasks — 查询任务列表
+- 在 `app/gateway/supabase_gateway.py` 中新增 3 个方法：insert_bid_tasks、get_bid_tasks、delete_bid_tasks_by_project
+- 在 `app/api/router.py` 中注册 bid_tasks_router
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - bid_tasks 的 related_requirement_ids 存储为 JSONB 数组（UUID 列表），insert 时直接传 Python list
+  - 任务拆解是纯规则引擎，不依赖 LLM，逻辑确定性高
+  - 特殊任务类型（报价/案例/人员/偏离表）通过关键词从需求文本中检测，需求可同时属于基础类型和特殊类型
+  - 后续 US-017（AIRevision 生成引擎）可直接使用 bid_tasks 数据驱动生成流程
+  - 后续 US-023（任务看板页面）需读取本接口的 bid_tasks 数据在前端展示
 ---

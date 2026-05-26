@@ -270,8 +270,8 @@
         "Typecheck 通过"
       ],
       "priority": 16,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "规则引擎实现：按 requirement_type 映射 + 关键词检测（报价/案例/人员/偏离表）生成 bid_tasks，敏感任务默认 human_required"
     },
     {
       "id": "US-017",
