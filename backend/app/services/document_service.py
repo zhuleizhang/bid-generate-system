@@ -10,6 +10,8 @@ from app.gateway.supabase_gateway import SupabaseGateway
 from app.models.document import DocumentResponse
 from app.models.document_node import ParseResult
 from app.services.docx_parser import parse_docx_structure
+from app.services.section_detector import detect_sections
+from app.models.section import SectionNode, SectionDetectionResult
 
 
 # DOCX 中需要提取的关键 XML 部件
@@ -225,4 +227,63 @@ async def parse_and_store_document(doc_id: str) -> ParseResult:
         document_id=doc_id,
         nodes=resolved,  # type: ignore[arg-type]
         node_count=len(resolved),
+    )
+
+
+async def detect_and_store_sections(doc_id: str) -> SectionDetectionResult:
+    """检测文档的章节结构并存储结果。
+
+    从 document_nodes 读取已解析的节点，识别标题段落、构建章节树，
+    回写 section_id 到各节点，并将章节信息存入 section_contents 表。
+    """
+    gw = SupabaseGateway()
+
+    doc = gw.get_document(doc_id)
+    if not doc:
+        raise ValueError(f"文档不存在: {doc_id}")
+
+    nodes = gw.get_document_nodes(doc_id)
+    if not nodes:
+        raise ValueError("文档尚未解析，请先调用 /parse 端点")
+
+    # 检测章节结构
+    sections, node_section_map = detect_sections(nodes)
+
+    # 回写 section_id 到 document_nodes
+    for node_id, section_id in node_section_map.items():
+        gw.update_node_section(node_id, section_id)
+
+    # 清理旧章节内容并写入新的
+    gw.delete_section_contents(doc_id)
+
+    # 展平章节树为列表（DFS 保持层级顺序）
+    def flatten(section_list: list[SectionNode]) -> list[SectionNode]:
+        result: list[SectionNode] = []
+        for s in section_list:
+            result.append(s)
+            result.extend(flatten(s.child_sections))
+        return result
+
+    all_sections = flatten(sections)
+
+    if all_sections:
+        content_records: list[dict[str, Any]] = []
+        for sec in all_sections:
+            content_records.append({
+                "document_id": doc_id,
+                "section_id": sec.section_id,
+                "section_path": sec.section_path,
+                "content": sec.title,
+                "node_id": sec.start_node_id,
+            })
+        gw.insert_section_contents(content_records)
+
+    # 更新文档状态
+    gw.update_document_status(doc_id, "sections_detected")
+
+    return SectionDetectionResult(
+        document_id=doc_id,
+        sections=sections,
+        total_sections=len(all_sections),
+        updated_nodes=len(node_section_map),
     )

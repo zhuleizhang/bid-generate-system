@@ -96,3 +96,34 @@ class SupabaseGateway:
     def update_node_parent(self, node_id: str, parent_node_id: str) -> None:
         """更新单个节点的 parent_node_id。"""
         self.client.table("document_nodes").update({"parent_node_id": parent_node_id}).eq("id", node_id).execute()
+
+    def update_node_section(self, node_id: str, section_id: str) -> None:
+        """更新单个节点的 section_id。"""
+        self.client.table("document_nodes").update({"section_id": section_id}).eq("id", node_id).execute()
+
+    def delete_section_contents(self, document_id: str) -> None:
+        """删除指定文档的所有章节内容记录。"""
+        self.client.table("section_contents").delete().eq("document_id", document_id).execute()
+
+    def insert_section_contents(self, contents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """批量插入章节内容记录。"""
+        all_inserted: list[dict[str, Any]] = []
+        batch_size = 100
+        for i in range(0, len(contents), batch_size):
+            batch = contents[i : i + batch_size]
+            result = self.client.table("section_contents").insert(batch).execute()
+            items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+            all_inserted.extend(items)
+        return all_inserted
+
+    def get_section_contents(self, document_id: str) -> list[dict[str, Any]]:
+        """查询指定文档的章节内容列表。"""
+        result = (
+            self.client.table("section_contents")
+            .select("*")
+            .eq("document_id", document_id)
+            .order("created_at")
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items

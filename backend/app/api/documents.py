@@ -2,9 +2,10 @@
 
 from fastapi import APIRouter, UploadFile, File
 
-from app.services.document_service import process_docx_upload, parse_and_store_document
+from app.services.document_service import process_docx_upload, parse_and_store_document, detect_and_store_sections
 from app.models.document import DocumentResponse, UploadError
 from app.models.document_node import ParseResult
+from app.models.section import SectionDetectionResult
 from app.gateway.supabase_gateway import SupabaseGateway
 
 documents_router = APIRouter(prefix="/documents", tags=["documents"])
@@ -27,3 +28,16 @@ async def get_document_nodes(doc_id: str):
     """查询指定文档的所有解析节点，按 order_index 排序。"""
     gw = SupabaseGateway()
     return gw.get_document_nodes(doc_id)
+
+
+@documents_router.post("/{doc_id}/detect-sections", response_model=SectionDetectionResult)
+async def detect_document_sections(doc_id: str):
+    """识别文档的章节结构与标题层级，回写 section_id 到各节点。"""
+    return await detect_and_store_sections(doc_id)
+
+
+@documents_router.get("/{doc_id}/sections")
+async def get_document_sections(doc_id: str):
+    """查询指定文档的章节结构树。"""
+    gw = SupabaseGateway()
+    return gw.get_section_contents(doc_id)
