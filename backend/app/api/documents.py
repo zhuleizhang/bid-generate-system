@@ -6,6 +6,7 @@ import json
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from lxml import html as lxml_html
+from lxml import etree
 import mammoth
 
 from app.services.document_service import process_docx_upload, parse_and_store_document, detect_and_store_sections
@@ -216,12 +217,174 @@ async def generate_document_ai_revisions(doc_id: str):
     return AIRevisionGenerationResult(**result)
 
 
+def _inject_revision_highlights(
+    tree: lxml_html.HtmlElement,
+    ai_revisions: list[dict],
+    document_nodes: list[dict],
+) -> None:
+    """在 HTML 预览中为 AIRevision 注入高亮标记。
+
+    通过文本匹配将 HTML 元素与 document_nodes 关联，
+    然后根据 AIRevision 类型注入对应的高亮 span 和 data 属性。
+    """
+    # 构建 document_node 文本 → node_id 的映射，用于文本匹配
+    node_text_map: dict[str, str] = {}
+    for node in document_nodes:
+        text = (node.get("text") or "").strip()
+        if text and len(text) >= 2:  # 忽略过短文本（误匹配概率高）
+            node_text_map[text] = node["id"]
+
+    # 构建 node_id → AIRevision 映射
+    revision_map: dict[str, list[dict]] = {}
+    for rev in ai_revisions:
+        nid = rev.get("node_id", "")
+        if nid:
+            revision_map.setdefault(nid, []).append(rev)
+
+    if not revision_map:
+        return
+
+    # 遍历 HTML 文本元素，匹配并注入高亮
+    for elem in tree.iter("p", "td", "th", "li"):
+        elem_text = (elem.text_content() or "").strip()
+        if not elem_text or len(elem_text) < 2:
+            continue
+
+        # 精确匹配优先，否则模糊匹配
+        node_id = node_text_map.get(elem_text)
+        if not node_id:
+            # 模糊匹配：检查 HTML 文本是否包含某节点文本
+            for node_text, nid in node_text_map.items():
+                if len(node_text) >= 4 and node_text in elem_text:
+                    node_id = nid
+                    break
+
+        if not node_id or node_id not in revision_map:
+            continue
+
+        revs = revision_map[node_id]
+        # 每个节点可能有多个修订，遍历处理
+        for rev in revs:
+            rev_type = rev.get("revision_type", "replace")
+            rev_id = rev.get("id", "")
+            ai_content = rev.get("ai_content") or ""
+            before_content = rev.get("before_content") or ""
+            status = rev.get("status", "pending")
+            risk_level = rev.get("risk_level", "low")
+            comment = rev.get("comment") or ""
+
+            # 构建 data 属性，供前端 Popover 使用
+            data_attrs = {
+                "data-revision-id": rev_id,
+                "data-revision-type": rev_type,
+                "data-revision-status": status,
+                "data-revision-risk": risk_level,
+            }
+
+            if rev_type == "replace":
+                _highlight_replace(elem, before_content, ai_content, data_attrs, comment)
+            elif rev_type == "append":
+                _highlight_append(elem, ai_content, data_attrs)
+            elif rev_type == "new_section":
+                _highlight_new_section(elem, ai_content, data_attrs)
+
+
+def _highlight_replace(
+    elem: lxml_html.HtmlElement,
+    before_content: str,
+    ai_content: str,
+    data_attrs: dict[str, str],
+    comment: str,
+) -> None:
+    """replace 类型：原始文本加删除线和黄色背景，AI 新文本加绿色背景。"""
+    # 保存原始文本（可能有子元素，回退到 text_content）
+    original_text = before_content or (elem.text_content() or "").strip()
+
+    # 清空元素内容
+    for child in list(elem):
+        elem.remove(child)
+    elem.text = ""
+
+    # 创建外层 wrapper
+    wrapper = etree.SubElement(elem, "span")
+    wrapper.set("class", "ai-revision-wrapper")
+    wrapper.set("title", comment)
+    for k, v in data_attrs.items():
+        wrapper.set(k, v)
+
+    # 原始文本 span（删除线 + 黄色背景）
+    orig_span = etree.SubElement(wrapper, "span")
+    orig_span.set("class", "revision-original")
+    orig_span.text = original_text
+
+    # AI 新文本 span（绿色背景 + 左侧绿色竖线）
+    if ai_content:
+        # lxml 在渲染时不会保留带空格的 text，需要额外处理
+        ai_span = etree.SubElement(wrapper, "span")
+        ai_span.set("class", "revision-ai")
+        ai_span.text = ai_content
+
+
+def _highlight_append(
+    elem: lxml_html.HtmlElement,
+    ai_content: str,
+    data_attrs: dict[str, str],
+) -> None:
+    """append 类型：在原段落后面插入 AI 新增内容块。"""
+    if not ai_content:
+        return
+
+    wrapper = lxml_html.Element("div")
+    wrapper.set("class", "ai-revision-wrapper ai-revision-append-block")
+    for k, v in data_attrs.items():
+        wrapper.set(k, v)
+
+    ai_span = etree.SubElement(wrapper, "span")
+    ai_span.set("class", "revision-ai")
+    ai_span.text = ai_content
+
+    # 插入到当前元素之后
+    parent = elem.getparent()
+    if parent is not None:
+        idx = list(parent).index(elem)
+        parent.insert(idx + 1, wrapper)
+
+
+def _highlight_new_section(
+    elem: lxml_html.HtmlElement,
+    ai_content: str,
+    data_attrs: dict[str, str],
+) -> None:
+    """new_section 类型：在当前元素后插入新章节内容块。"""
+    if not ai_content:
+        return
+
+    wrapper = lxml_html.Element("div")
+    wrapper.set("class", "ai-revision-wrapper ai-revision-new-section-block")
+    for k, v in data_attrs.items():
+        wrapper.set(k, v)
+
+    badge = etree.SubElement(wrapper, "span")
+    badge.set("class", "revision-badge")
+    badge.text = "AI 建议新增章节"
+
+    content = etree.SubElement(wrapper, "p")
+    content.set("class", "revision-ai")
+    content.text = ai_content
+
+    parent = elem.getparent()
+    if parent is not None:
+        idx = list(parent).index(elem)
+        parent.insert(idx + 1, wrapper)
+
+
 @documents_router.get("/{doc_id}/preview")
 async def preview_document(doc_id: str):
-    """将 DOCX 转为 HTML 预览，同时返回章节结构。
+    """将 DOCX 转为 HTML 预览，含章节结构和 AIRevision 高亮标记。
 
     从 Supabase Storage 下载原始 DOCX 文件，使用 mammoth 转换为 HTML，
-    保留标题层级、加粗、列表和表格等基本格式。同时返回文档的章节树数据。
+    保留标题层级、加粗、列表和表格等基本格式。同时返回文档的章节树数据
+    和 AIRevision 列表，并在 HTML 中注入修订高亮标记供前端渲染。
     """
     gw = SupabaseGateway()
 
@@ -255,30 +418,46 @@ async def preview_document(doc_id: str):
     # 获取章节结构
     sections = gw.get_section_contents(doc_id)
 
-    # 在 HTML 中为各章节标题注入锚点 ID，供前端导航滚动定位
-    if sections:
+    # 获取 AIRevision 和文档节点数据
+    ai_revisions_raw = gw.get_ai_revisions(doc_id)
+    # 将 Supabase 返回的行数据转为 dict 列表（兼容 mypy）
+    ai_revisions: list[dict] = [dict(r) for r in ai_revisions_raw]
+
+    document_nodes_raw = gw.get_document_nodes(doc_id)
+    document_nodes: list[dict] = [dict(n) for n in document_nodes_raw]
+
+    # 在 HTML 中为各章节标题注入锚点 ID，同时注入 AIRevision 高亮标记
+    if sections or ai_revisions:
         try:
             tree = lxml_html.fromstring(html_content)
-            title_to_section: dict[str, str] = {}
-            for s in sections:
-                key = s["title"].strip()
-                if key:
-                    title_to_section[key] = s["section_id"]
 
-            for h_tag in tree.iter("h1", "h2", "h3", "h4", "h5", "h6"):
-                text = (h_tag.text_content() or "").strip()
-                if text in title_to_section:
-                    h_tag.set("id", f"sec-{title_to_section[text]}")
+            # 1) 章节锚点注入
+            title_to_section: dict[str, str] = {}
+            if sections:
+                for s in sections:
+                    key = s["title"].strip()
+                    if key:
+                        title_to_section[key] = s["section_id"]
+
+                for h_tag in tree.iter("h1", "h2", "h3", "h4", "h5", "h6"):
+                    text = (h_tag.text_content() or "").strip()
+                    if text in title_to_section:
+                        h_tag.set("id", f"sec-{title_to_section[text]}")
+
+            # 2) AIRevision 高亮标记注入
+            if ai_revisions:
+                _inject_revision_highlights(tree, ai_revisions, document_nodes)
 
             html_content = lxml_html.tostring(tree, encoding="unicode", method="html")
         except Exception:
-            pass  # 锚点注入失败不阻塞预览
+            pass  # 后处理失败不阻塞预览
 
     return {
         "document_id": doc_id,
         "document_name": doc.get("name", ""),
         "html": html_content,
         "sections": sections,
+        "ai_revisions": ai_revisions,
         "warnings": messages,
     }
 

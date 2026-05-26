@@ -9,3 +9,116 @@ body {
     "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei",
     sans-serif;
 }
+
+/* AIRevision 高亮样式 */
+
+.ai-revision-wrapper {
+  cursor: pointer;
+  border-radius: 2px;
+  transition: opacity 0.15s;
+}
+
+.ai-revision-wrapper:hover {
+  opacity: 0.85;
+}
+
+/* replace 类型：原始文本黄色删除线 + AI 文本绿色 */
+.revision-original {
+  background: #fff3cd;
+  text-decoration: line-through;
+  color: #856404;
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-right: 4px;
+}
+
+.revision-ai {
+  background: #d4edda;
+  color: #155724;
+  padding: 1px 4px;
+  border-radius: 2px;
+  border-left: 3px solid #28a745;
+}
+
+/* 待确认状态用橙色背景 */
+.ai-revision-wrapper[data-revision-status="pending"]
+  .revision-ai,
+.ai-revision-wrapper[data-revision-status="need_human_confirm"]
+  .revision-ai,
+.ai-revision-wrapper[data-revision-status="pending"]
+  .revision-original,
+.ai-revision-wrapper[data-revision-status="need_human_confirm"]
+  .revision-original {
+  background: #fff7e6;
+  border-left-color: #fa8c16;
+  color: #ad4e00;
+}
+
+.ai-revision-wrapper[data-revision-status="pending"]
+  .revision-original,
+.ai-revision-wrapper[data-revision-status="need_human_confirm"]
+  .revision-original {
+  background: #fff2e8;
+  color: #ad4e00;
+}
+
+/* 待确认状态左侧标签 */
+.ai-revision-wrapper[data-revision-status="need_human_confirm"]::before {
+  content: "⚠ 需人工确认";
+  display: inline-block;
+  font-size: 11px;
+  color: #ad4e00;
+  background: #fff2e8;
+  padding: 0 4px;
+  border-radius: 2px;
+  margin-right: 4px;
+}
+
+/* append / new_section 块样式 */
+.ai-revision-append-block,
+.ai-revision-new-section-block {
+  padding: 8px 12px;
+  margin: 4px 0;
+  border-radius: 4px;
+}
+
+.ai-revision-append-block {
+  background: #f0fff0;
+  border: 1px dashed #b7eb8f;
+}
+
+.ai-revision-append-block .revision-ai {
+  background: transparent;
+  border-left: 3px solid #52c41a;
+  color: #135200;
+  padding: 2px 8px;
+  display: block;
+}
+
+.ai-revision-new-section-block {
+  background: #e6f7ff;
+  border: 1px dashed #91d5ff;
+}
+
+.ai-revision-new-section-block .revision-ai {
+  background: transparent;
+  border-left: 3px solid #1890ff;
+  color: #003a8c;
+  padding: 2px 8px;
+  margin-top: 4px;
+}
+
+.revision-badge {
+  font-size: 11px;
+  color: #1890ff;
+  background: #bae7ff;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+/* 高风险修订额外边框 */
+.ai-revision-wrapper[data-revision-risk="high"] {
+  outline: 1px dashed #ff4d4f;
+  outline-offset: 2px;
+}

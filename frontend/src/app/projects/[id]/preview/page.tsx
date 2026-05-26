@@ -10,11 +10,27 @@ import {
   Button,
   Space,
   message,
+  Popover,
+  Tag,
+  Descriptions,
+  Divider,
 } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import {
+  ArrowLeftOutlined,
+  InfoCircleOutlined,
+} from "@ant-design/icons";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { ProjectFileItem } from "@/lib/types/project_file";
+import type { AIRevision } from "@/lib/types/ai_revision";
+import {
+  REVISION_TYPE_LABELS,
+  REVISION_TYPE_COLORS,
+  RISK_LEVEL_LABELS,
+  RISK_LEVEL_COLORS,
+  STATUS_LABELS,
+  STATUS_COLORS,
+} from "@/lib/types/ai_revision";
 import ChapterTree from "@/components/ChapterTree";
 import type { SectionItem } from "@/components/ChapterTree";
 
@@ -25,8 +41,12 @@ interface PreviewData {
   document_name: string;
   html: string;
   sections: SectionItem[];
+  ai_revisions: AIRevision[];
   warnings: string[];
 }
+
+/** AIRevision 按 ID 查找的映射 */
+type RevisionMap = Map<string, AIRevision>;
 
 export default function PreviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -39,6 +59,13 @@ export default function PreviewPage() {
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
+
+  // Popover 状态
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [popoverRevision, setPopoverRevision] = useState<AIRevision | null>(null);
+
+  // 缓存 AIRevision 按 ID 查找的映射
+  const revisionMapRef = useRef<RevisionMap>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +120,17 @@ export default function PreviewPage() {
     };
   }, [selectedDocId]);
 
+  // 将 AIRevision 列表构建为按 ID 查找的映射
+  useEffect(() => {
+    const map: RevisionMap = new Map();
+    if (previewData?.ai_revisions) {
+      for (const rev of previewData.ai_revisions) {
+        map.set(rev.id, rev);
+      }
+    }
+    revisionMapRef.current = map;
+  }, [previewData?.ai_revisions]);
+
   const handleSectionSelect = useCallback((sectionId: string) => {
     setSelectedSectionId(sectionId);
     const anchor = document.getElementById(`sec-${sectionId}`);
@@ -100,6 +138,107 @@ export default function PreviewPage() {
       anchor.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, []);
+
+  // 在 HTML 渲染后，通过事件代理绑定点击 Popover
+  const handlePreviewClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const wrapper = target.closest(".ai-revision-wrapper") as HTMLElement | null;
+    if (!wrapper) {
+      setPopoverOpen(false);
+      return;
+    }
+
+    const revisionId = wrapper.getAttribute("data-revision-id");
+    if (!revisionId) return;
+
+    const rev = revisionMapRef.current.get(revisionId);
+    if (rev) {
+      setPopoverRevision(rev);
+      setPopoverOpen(true);
+    }
+  }, []);
+
+  // 渲染 Popover 内容
+  const renderPopoverContent = useCallback(() => {
+    if (!popoverRevision) return null;
+    const rev = popoverRevision;
+    return (
+      <div style={{ maxWidth: 380 }}>
+        <div style={{ marginBottom: 8 }}>
+          <Tag color={REVISION_TYPE_COLORS[rev.revision_type]}>
+            {REVISION_TYPE_LABELS[rev.revision_type] || rev.revision_type}
+          </Tag>
+          <Tag color={STATUS_COLORS[rev.status]}>
+            {STATUS_LABELS[rev.status] || rev.status}
+          </Tag>
+          <Tag color={RISK_LEVEL_COLORS[rev.risk_level]}>
+            {RISK_LEVEL_LABELS[rev.risk_level] || rev.risk_level}
+          </Tag>
+        </div>
+
+        {rev.comment && (
+          <div style={{ marginBottom: 8 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {rev.comment}
+            </Text>
+          </div>
+        )}
+
+        <Descriptions size="small" column={1} style={{ marginBottom: 8 }}>
+          <Descriptions.Item label="置信度">
+            {Math.round(rev.confidence * 100)}%
+          </Descriptions.Item>
+          {rev.before_content && (
+            <Descriptions.Item label="原文">
+              <Text
+                style={{
+                  background: "#fff3cd",
+                  padding: "1px 4px",
+                  borderRadius: 2,
+                  fontSize: 12,
+                  display: "inline-block",
+                  maxWidth: "100%",
+                  wordBreak: "break-all",
+                }}
+              >
+                {rev.before_content.length > 120
+                  ? rev.before_content.slice(0, 120) + "..."
+                  : rev.before_content}
+              </Text>
+            </Descriptions.Item>
+          )}
+          {rev.ai_content && (
+            <Descriptions.Item label="AI 建议内容">
+              <Text
+                style={{
+                  background: "#d4edda",
+                  padding: "1px 4px",
+                  borderRadius: 2,
+                  fontSize: 12,
+                  display: "inline-block",
+                  maxWidth: "100%",
+                  wordBreak: "break-all",
+                }}
+              >
+                {rev.ai_content.length > 200
+                  ? rev.ai_content.slice(0, 200) + "..."
+                  : rev.ai_content}
+              </Text>
+            </Descriptions.Item>
+          )}
+        </Descriptions>
+
+        {rev.source_requirement_ids.length > 0 && (
+          <>
+            <Divider style={{ margin: "4px 0" }} />
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              关联 {rev.source_requirement_ids.length} 条招标要求
+            </Text>
+          </>
+        )}
+      </div>
+    );
+  }, [popoverRevision]);
 
   if (pageLoading) {
     return (
@@ -187,9 +326,16 @@ export default function PreviewPage() {
           {/* 右侧 HTML 预览 */}
           <Card
             title={
-              <Text ellipsis style={{ maxWidth: 400 }}>
-                {previewData?.document_name || "预览内容"}
-              </Text>
+              <Space>
+                <Text ellipsis style={{ maxWidth: 400 }}>
+                  {previewData?.document_name || "预览内容"}
+                </Text>
+                {previewData?.ai_revisions && previewData.ai_revisions.length > 0 && (
+                  <Tag icon={<InfoCircleOutlined />} color="processing">
+                    {previewData.ai_revisions.length} 条 AI 修订
+                  </Tag>
+                )}
+              </Space>
             }
             size="small"
             style={{
@@ -211,12 +357,22 @@ export default function PreviewPage() {
                 <Spin size="large" tip="正在加载预览..." />
               </div>
             ) : previewData ? (
-              <div
-                ref={previewContainerRef}
-                className="mammoth-preview"
-                dangerouslySetInnerHTML={{ __html: previewData.html }}
-                style={{ maxWidth: 900, margin: "0 auto" }}
-              />
+              <Popover
+                content={renderPopoverContent()}
+                title="AI 修订详情"
+                trigger="contextMenu"
+                open={popoverOpen}
+                onOpenChange={setPopoverOpen}
+                placement="right"
+              >
+                <div
+                  ref={previewContainerRef}
+                  className="mammoth-preview"
+                  dangerouslySetInnerHTML={{ __html: previewData.html }}
+                  style={{ maxWidth: 900, margin: "0 auto" }}
+                  onClick={handlePreviewClick}
+                />
+              </Popover>
             ) : null}
           </Card>
         </div>
