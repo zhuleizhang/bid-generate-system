@@ -17,7 +17,9 @@ from app.models.section import SectionDetectionResult
 from app.models.template_slot import SlotGenerationResult
 from app.models.unfinished_item import UnfinishedItemGenerationResult
 from app.models.writeback import WriteBackOperation, WriteBackResult
+from app.services.requirement_extraction_service import extract_requirements_from_document
 from app.models.tender_parse import TenderParseResponse
+from app.models.requirement import RequirementExtractionResult
 from app.gateway.supabase_gateway import SupabaseGateway
 
 documents_router = APIRouter(prefix="/documents", tags=["documents"])
@@ -168,3 +170,22 @@ async def get_parsed_content(doc_id: str):
         "tables": content.get("tables", []),
         "full_text": content.get("full_text", ""),
     }
+
+
+@documents_router.post("/{doc_id}/extract-requirements", response_model=RequirementExtractionResult)
+async def extract_document_requirements(doc_id: str):
+    """从已解析的招标文件中提取结构化要求。
+
+    调用 LLM 分析文档全文，提取项目基本信息、商务/技术要求、
+    评分标准、废标项、资质要求、交付要求和格式要求。
+    提取结果写入 requirements 表，LLM 调用记录到 model_call_logs。
+    前提：文档需先调用 /parse-tender 完成解析。
+    """
+    try:
+        result = await extract_requirements_from_document(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"要求提取失败: {str(e)}")
+
+    return RequirementExtractionResult(**result)

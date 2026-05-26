@@ -277,3 +277,32 @@ class SupabaseGateway:
         )
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items
+
+    # ── Requirements ──────────────────────────────────────────────
+
+    def insert_requirements(self, requirements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """批量插入招标要求记录。"""
+        all_inserted: list[dict[str, Any]] = []
+        batch_size = 100
+        for i in range(0, len(requirements), batch_size):
+            batch = requirements[i : i + batch_size]
+            result = self.client.table("requirements").insert(batch).execute()
+            items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+            all_inserted.extend(items)
+        return all_inserted
+
+    def get_requirements(self, project_id: str) -> list[dict[str, Any]]:
+        """查询指定项目的所有招标要求。"""
+        result = (
+            self.client.table("requirements")
+            .select("*")
+            .eq("project_id", project_id)
+            .order("created_at")
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items
+
+    def delete_requirements_by_document(self, doc_id: str) -> None:
+        """删除指定文档关联的所有招标要求（用于重新提取）。"""
+        self.client.table("requirements").delete().eq("source_document_id", doc_id).execute()
