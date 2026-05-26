@@ -18,8 +18,10 @@ from app.models.template_slot import SlotGenerationResult
 from app.models.unfinished_item import UnfinishedItemGenerationResult
 from app.models.writeback import WriteBackOperation, WriteBackResult
 from app.services.requirement_extraction_service import extract_requirements_from_document
+from app.services.ai_revision_service import generate_ai_revisions
 from app.models.tender_parse import TenderParseResponse
 from app.models.requirement import RequirementExtractionResult
+from app.models.ai_revision import AIRevisionGenerationResult
 from app.gateway.supabase_gateway import SupabaseGateway
 
 documents_router = APIRouter(prefix="/documents", tags=["documents"])
@@ -189,3 +191,35 @@ async def extract_document_requirements(doc_id: str):
         raise HTTPException(status_code=500, detail=f"要求提取失败: {str(e)}")
 
     return RequirementExtractionResult(**result)
+
+
+@documents_router.post("/{doc_id}/ai-revisions/generate", response_model=AIRevisionGenerationResult)
+async def generate_document_ai_revisions(doc_id: str):
+    """为文档的全部 TemplateSlot 调用 LLM 生成 AIRevision 填充内容。
+
+    根据每个 slot 的 expected_content_type 和 section_path 匹配
+    项目招标要求，构建 LLM prompt 生成合适的标书内容。
+    涉及资质/报价/案例/承诺的内容自动标记高风险和待确认状态。
+    无法生成的位置自动创建 UnfinishedItem。
+    前提：文档需已完成 parse → generate-slots → classify-slots。
+    """
+    try:
+        result = await generate_ai_revisions(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AIRevision 生成失败: {str(e)}")
+
+    return AIRevisionGenerationResult(**result)
+
+
+@documents_router.get("/{doc_id}/ai-revisions")
+async def list_document_ai_revisions(doc_id: str):
+    """查询指定文档的所有 AIRevision 记录。"""
+    gw = SupabaseGateway()
+
+    doc = gw.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    return gw.get_ai_revisions(doc_id)

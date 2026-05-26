@@ -335,3 +335,32 @@ class SupabaseGateway:
     def delete_bid_tasks_by_project(self, project_id: str) -> None:
         """删除指定项目的所有标书任务（用于重新拆解）。"""
         self.client.table("bid_tasks").delete().eq("project_id", project_id).execute()
+
+    # ── AI Revisions ───────────────────────────────────────────────
+
+    def insert_ai_revisions(self, revisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """批量插入 AIRevision 记录。"""
+        all_inserted: list[dict[str, Any]] = []
+        batch_size = 100
+        for i in range(0, len(revisions), batch_size):
+            batch = revisions[i : i + batch_size]
+            result = self.client.table("ai_revisions").insert(batch).execute()
+            items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+            all_inserted.extend(items)
+        return all_inserted
+
+    def delete_ai_revisions(self, document_id: str) -> None:
+        """删除指定文档的所有 AIRevision 记录（用于重新生成）。"""
+        self.client.table("ai_revisions").delete().eq("document_id", document_id).execute()
+
+    def get_ai_revisions(self, document_id: str) -> list[dict[str, Any]]:
+        """查询指定文档的所有 AIRevision 记录。"""
+        result = (
+            self.client.table("ai_revisions")
+            .select("*")
+            .eq("document_id", document_id)
+            .order("created_at")
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items

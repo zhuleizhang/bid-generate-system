@@ -290,8 +290,8 @@
         "Typecheck 通过"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "每 section 批量处理（5 slots/batch），expected_content_type 与 requirement_type 通过映射表匹配，section_path 关键词补充匹配"
     },
     {
       "id": "US-018",

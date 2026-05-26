@@ -352,3 +352,28 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 后续 US-017（AIRevision 生成引擎）可直接使用 bid_tasks 数据驱动生成流程
   - 后续 US-023（任务看板页面）需读取本接口的 bid_tasks 数据在前端展示
 ---
+
+## 2026-05-26 24:00 — US-017
+- 创建了 `app/models/ai_revision.py`：AIRevisionResponse 和 AIRevisionGenerationResult Pydantic 模型
+- 创建了 `app/services/ai_revision_service.py`：AIRevision 生成引擎
+  - 按 section_path 分组处理 template_slots，每批最多 5 个 slot
+  - expected_content_type → requirement_type 映射表（17 种语义类型映射）
+  - section_path 中文关键词拆分匹配作为补充匹配策略
+  - 模板上下文：获取当前节点前后各 2 段作为上下文
+  - 单 slot 直接调用 LLM，多 slot 合并为 JSON 数组格式批量生成
+  - 涉及资质/报价/案例/承诺的内容自动标记 risk_level=high、status=need_human_confirm
+  - 无法生成的位置（LLM 返回空或解析失败）自动创建 UnfinishedItem
+  - LLM 调用记录到 model_call_logs（scenario = 'generation'）
+- 在 `app/gateway/supabase_gateway.py` 中新增 3 个方法：insert_ai_revisions、delete_ai_revisions、get_ai_revisions
+- 在 `app/api/documents.py` 中新增：
+  - POST /api/documents/{doc_id}/ai-revisions/generate — 触发 AIRevision 生成
+  - GET /api/documents/{doc_id}/ai-revisions — 查询修订列表
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - AIRevision 生成是整个 E0→E1 管线的枢纽：将模板解析结果（template_slots）与招标分析结果（requirements）首次连接起来
+  - 生成前自动清除旧的 AIRevision 和 UnfinishedItem，确保幂等性
+  - expected_content_type 是 LLM 分类结果（US-009），质量取决于 LLM 分类的准确性
+  - 后续 US-018（响应性检查）需要读取 ai_revisions 数据来检查 requirement 覆盖情况
+  - 后续 US-019（DOCX 导出）需要根据 ai_revisions.status 过滤已接受的修订进行合成
+  - 后续 US-026/027/028（前端预览和操作）直接依赖本接口生成的 ai_revisions 数据
+---
