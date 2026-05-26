@@ -44,6 +44,17 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+
+  /** 文件上传，使用 FormData（multipart/form-data），不设 JSON Content-Type */
+  upload: async <T>(path: string, formData: FormData): Promise<T> => {
+    const url = `${API_BASE}${path}`;
+    const res = await fetch(url, { method: "POST", body: formData });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body?.detail || res.statusText);
+    }
+    return res.json();
+  },
 };
 
 export { ApiError };

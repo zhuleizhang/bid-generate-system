@@ -75,6 +75,9 @@ export default function ProjectsPage() {
       dataIndex: "name",
       key: "name",
       ellipsis: true,
+      render: (name: string, r) => (
+        <a onClick={() => router.push(`/projects/${r.id}`)}>{name}</a>
+      ),
     },
     {
       title: "招标单位",

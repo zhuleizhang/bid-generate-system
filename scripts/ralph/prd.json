@@ -360,8 +360,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 21,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "项目详情页 /projects/{id} + Dragger 上传组件，XHR 进度跟踪，文件类型前置校验，按类型分组展示"
     },
     {
       "id": "US-022",

@@ -24,7 +24,7 @@
 - DOCX vMerge 的 val 属性可能缺失（部分工具生成），需根据同列上方是否已有 restart 来推断当前单元格是否为 continue
 
 ================================================================================
-CURRENT: US-018 — 响应性检查服务
+CURRENT: US-021 — 文件上传组件（拖拽上传 + 进度展示）
 STATUS:   done
 ================================================================================
 
@@ -48,7 +48,7 @@ US-017 |   done  | AIRevision 生成引擎
 US-018 |   done  | 响应性检查服务
 US-019 |   done  | DOCX 最终导出服务
 US-020 |   done  | 项目列表和创建/编辑页面
-US-021 | pending | 文件上传组件（拖拽上传 + 进度展示）
+US-021 |   done  | 文件上传组件（拖拽上传 + 进度展示）
 US-022 | pending | 招标解析结果展示与人工编辑
 US-023 | pending | 任务看板页面
 US-024 | pending | DOCX 转 HTML 预览（mammoth 集成）
@@ -442,4 +442,28 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 后续 US-021（文件上传组件）将在项目详情页 `/projects/{id}` 中添加上传区域
   - 后续 US-023（任务看板）将在 `/projects/{id}/tasks` 中添加看板视图
   - 后续 US-022/030/031 的前端页面均复用本故事建立的 API 调用模式和类型系统
+---
+
+## 2026-05-26 — US-021
+- 创建了 `backend/app/models/project_file.py`：新增 ProjectFileItem 和 ProjectFilesResponse 响应模型
+- 更新了 `backend/app/api/project_files.py`：新增 GET /api/projects/{project_id}/files 端点
+- 创建了 `frontend/src/lib/types/project_file.ts`：文件上传相关 TS 类型定义和文档类型映射常量
+- 更新了 `frontend/src/lib/api.ts`：新增 `api.upload()` 方法（FormData + multipart/form-data）
+- 创建了 `frontend/src/app/projects/[id]/page.tsx`：项目详情页
+  - Ant Design Descriptions 展示项目基本信息
+  - Dragger 拖拽上传区域，支持多文件、拖拽和点击上传
+  - 上传前文件类型校验（仅 .docx/.pdf/.doc，最大 50MB）
+  - XMLHttpRequest 实现真实上传进度回调
+  - 上传结果反馈（成功数/失败数/失败原因）
+  - 文件列表按类型分组展示（投标模板/招标文件/公司资料），含标签、文件大小和上传时间
+  - 刷新按钮手动重新加载文件列表
+- 更新了 `frontend/src/app/projects/page.tsx`：项目名称可点击跳转到详情页
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - Ant Design Upload 的 `beforeUpload` 在 v5 中返回 `Upload.LIST_IGNORE` 时不能标注 `boolean` 返回类型，需省略注解
+  - 文件上传进度需使用 XMLHttpRequest 而非 fetch API（fetch 不支持原生上传进度事件）
+  - `api.upload()` 方法不设 Content-Type header，让浏览器自动设置 multipart/form-data boundary
+  - eslint 规则 `react-hooks/set-state-in-effect` 会在 effect 中同步调用 setState 时报错，需在 async 函数内部做状态更新或合并 effects
+  - 后续 US-022（招标解析结果展示）将在项目详情页增加 Tab 切换
+  - 后续 US-023（任务看板）将在 `/projects/{id}/tasks` 中添加看板视图
 ---

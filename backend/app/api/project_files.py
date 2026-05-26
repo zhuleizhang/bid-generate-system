@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 
-from app.models.project_file import FileUploadItem, FilesUploadResponse
+from app.models.project_file import FileUploadItem, FilesUploadResponse, ProjectFileItem, ProjectFilesResponse
 from app.gateway.supabase_gateway import SupabaseGateway
 
 project_files_router = APIRouter(prefix="/projects", tags=["project-files"])
@@ -28,6 +28,31 @@ def _get_extension(filename: str) -> str:
     if "." in filename:
         return "." + filename.rsplit(".", 1)[-1].lower()
     return ""
+
+
+@project_files_router.get("/{project_id}/files", response_model=ProjectFilesResponse)
+async def list_project_files(project_id: str):
+    """查询项目下所有已上传的文件，按类型和创建时间排序。"""
+    gw = SupabaseGateway()
+
+    project = gw.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    docs = gw.get_documents_by_project(project_id)
+    files = [
+        ProjectFileItem(
+            id=doc.get("id", ""),
+            name=doc.get("name", ""),
+            document_type=doc.get("document_type", "company_material"),
+            file_size=doc.get("file_size", 0),
+            mime_type=doc.get("mime_type"),
+            status=doc.get("status", "uploaded"),
+            created_at=doc.get("created_at", ""),
+        )
+        for doc in docs
+    ]
+    return ProjectFilesResponse(project_id=project_id, files=files)
 
 
 @project_files_router.post("/{project_id}/files/upload", response_model=FilesUploadResponse)
