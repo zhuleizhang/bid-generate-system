@@ -2,10 +2,12 @@ from fastapi import APIRouter
 
 from app.api.documents import documents_router
 from app.api.projects import projects_router
+from app.api.project_files import project_files_router
 
 router = APIRouter()
 router.include_router(documents_router)
 router.include_router(projects_router)
+router.include_router(project_files_router)
 
 
 @router.get("/health")

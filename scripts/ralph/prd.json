@@ -204,7 +204,7 @@
         "Typecheck 通过"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -221,7 +221,7 @@
         "Typecheck 通过"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

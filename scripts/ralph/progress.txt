@@ -39,8 +39,8 @@ US-008 |   done  | 生成 TemplateSlot 可填充位置
 US-009 |   done  | LLM 辅助判断章节和表格语义类型
 US-010 |   done  | 生成未完成项（UnfinishedItem）
 US-011 |   done  | 内容回写引擎与 Word/WPS 兼容验证
-US-012 | pending | 项目 CRUD API
-US-013 | pending | 文件上传 API（招标文件、公司资料）
+US-012 |   done  | 项目 CRUD API
+US-013 |   done  | 文件上传 API（招标文件、公司资料）
 US-014 | pending | 招标文件解析引擎（PDF + Word）
 US-015 | pending | 招标要求提取与结构化
 US-016 | pending | 标书任务拆解服务
@@ -253,5 +253,41 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - w:t 元素需设置 xml:space="preserve" 属性以保留前后空格
   - 后续 US-017（AIRevision 生成引擎）生成的修订内容可直接通过本引擎的 writeback 端点写回模板
   - 后续 US-019（DOCX 最终导出）需要从本引擎复用 write_back_docx 核心函数，批量应用 AIRevision
+---
+
+## 2026-05-26 22:00 — US-012
+- 创建了 `app/models/project.py`：ProjectCreate、ProjectUpdate、ProjectResponse、ProjectListResponse Pydantic 模型
+- 创建了 `app/api/projects.py`：五个 RESTful 端点
+  - POST /api/projects — 创建项目（201 Created）
+  - GET /api/projects — 分页列表（支持 status 筛选、name 模糊搜索，按 created_at 降序）
+  - GET /api/projects/{id} — 项目详情（404 保护）
+  - PUT /api/projects/{id} — 编辑项目（空更新检查 400 保护）
+  - DELETE /api/projects/{id} — 删除项目（仅 pending 状态可删，否则 409）
+- 在 `app/gateway/supabase_gateway.py` 中新增 6 个方法：insert_project、get_projects、get_project、update_project、delete_project、get_project_document_count
+- 在 `app/api/router.py` 中注册 projects_router
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - Supabase Python SDK 的 `select("*", count="exact")` 参数类型与返回类型有 mypy 兼容问题，需 `# type: ignore[arg-type]` 和 `# type: ignore[union-attr]`
+  - 项目 CRUD 是后续所有功能（文件上传、招标解析、任务拆解、导出）的容器基础
+  - US-013（文件上传 API）需要 projects 表先存在，URL 路径为 `/api/projects/{id}/files/upload`
+  - 前端 US-020（项目列表/创建/编辑页面）直接依赖本 API
+---
+
+## 2026-05-26 22:30 — US-013
+- 创建了 `app/models/project_file.py`：FileUploadItem、FilesUploadResponse Pydantic 模型
+- 创建了 `app/api/project_files.py`：POST /api/projects/{project_id}/files/upload 端点
+- 支持多文件批量上传，每文件独立成功/失败结果
+- 扩展名默认映射：.docx → bid_template、.pdf → tender_doc、.doc → company_material
+- 用户可通过 Form 参数 document_type 显式指定类型覆盖默认映射
+- 文件存储路径：projects/{project_id}/{document_type}/{safe_filename}
+- 上传后自动创建 documents 表记录并关联 project_id
+- 支持文件类型：.docx、.pdf、.doc（非 docx/pdf 仅存储不解析）
+- 在 `app/api/router.py` 中注册 project_files_router
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - project_files_router 也使用 /projects 前缀，与 projects_router 共用同一前缀但端点不同
+  - 项目文件的 document_type 可通过 Form 参数显式指定，默认值仅基于扩展名猜测
+  - 后续 US-014（招标文件解析引擎）将依赖本接口上传的文档记录
+  - 后续 US-021（文件上传组件 UI）直接调用本端点
 ---
 
