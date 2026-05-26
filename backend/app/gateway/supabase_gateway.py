@@ -156,3 +156,17 @@ class SupabaseGateway:
         )
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items
+
+    def update_template_slot_content_type(self, slot_id: str, content_type: str) -> None:
+        """更新单条 TemplateSlot 的 expected_content_type。"""
+        self.client.table("template_slots").update(
+            {"expected_content_type": content_type}
+        ).eq("id", slot_id).execute()
+
+    # ── Model Call Logs ─────────────────────────────────────────
+
+    def insert_model_call_log(self, data: dict[str, Any]) -> dict[str, Any]:
+        """插入一条 LLM 调用日志记录。"""
+        result = self.client.table("model_call_logs").insert(data).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else {}

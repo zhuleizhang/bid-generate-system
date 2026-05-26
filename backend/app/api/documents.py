@@ -4,6 +4,7 @@ from fastapi import APIRouter, UploadFile, File
 
 from app.services.document_service import process_docx_upload, parse_and_store_document, detect_and_store_sections
 from app.services.template_slot_service import generate_template_slots
+from app.services.llm_classifier_service import classify_template_slots
 from app.models.document import DocumentResponse, UploadError
 from app.models.document_node import ParseResult
 from app.models.section import SectionDetectionResult
@@ -56,3 +57,10 @@ async def get_document_slots(doc_id: str):
     """查询指定文档的所有 TemplateSlot 记录。"""
     gw = SupabaseGateway()
     return gw.get_template_slots(doc_id)
+
+
+@documents_router.post("/{doc_id}/classify-slots")
+async def classify_document_slots(doc_id: str):
+    """对文档的 heading_section 和 table_cell 类型 slot 进行 LLM 语义分类，
+    分类结果回写到 expected_content_type，LLM 失败时降级为关键词规则匹配。"""
+    return await classify_template_slots(doc_id)
