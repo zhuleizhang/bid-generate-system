@@ -306,3 +306,32 @@ class SupabaseGateway:
     def delete_requirements_by_document(self, doc_id: str) -> None:
         """删除指定文档关联的所有招标要求（用于重新提取）。"""
         self.client.table("requirements").delete().eq("source_document_id", doc_id).execute()
+
+    # ── Bid Tasks ──────────────────────────────────────────────────
+
+    def insert_bid_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """批量插入标书任务记录。"""
+        all_inserted: list[dict[str, Any]] = []
+        batch_size = 100
+        for i in range(0, len(tasks), batch_size):
+            batch = tasks[i : i + batch_size]
+            result = self.client.table("bid_tasks").insert(batch).execute()
+            items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+            all_inserted.extend(items)
+        return all_inserted
+
+    def get_bid_tasks(self, project_id: str) -> list[dict[str, Any]]:
+        """查询指定项目的所有标书任务。"""
+        result = (
+            self.client.table("bid_tasks")
+            .select("*")
+            .eq("project_id", project_id)
+            .order("created_at")
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items
+
+    def delete_bid_tasks_by_project(self, project_id: str) -> None:
+        """删除指定项目的所有标书任务（用于重新拆解）。"""
+        self.client.table("bid_tasks").delete().eq("project_id", project_id).execute()
