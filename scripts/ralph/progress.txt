@@ -24,7 +24,7 @@
 - DOCX vMerge 的 val 属性可能缺失（部分工具生成），需根据同列上方是否已有 restart 来推断当前单元格是否为 continue
 
 ================================================================================
-CURRENT: US-026 — HTML 预览中的 AIRevision 高亮展示
+CURRENT: US-028 — AIRevision 批量操作
 STATUS:   done
 ================================================================================
 
@@ -55,7 +55,7 @@ US-024 |   done  | DOCX 转 HTML 预览（mammoth 集成）
 US-025 |   done  | 章节树导航组件
 US-026 |   done  | HTML 预览中的 AIRevision 高亮展示
 US-027 |   done  | AIRevision 侧边栏 — 列表与单条操作
-US-028 | pending | AIRevision 批量操作
+US-028 |   done  | AIRevision 批量操作
 US-029 | pending | 未完成项面板与补充资料流程
 US-030 | pending | 响应性检查结果页
 US-031 | pending | DOCX 导出流程 UI
@@ -634,4 +634,23 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - Collapse 的 defaultActiveKey 使用所有分组 key，确保全部默认展开
   - 后续 US-028（批量操作）可直接复用 RevisionSidebar 组件，在顶部增加批量操作工具栏
   - 后续 US-029（未完成项面板）可参考本组件的 Card + Collapse 分组 + 操作按钮模式
+---
+
+## 2026-05-26 — US-028
+- 创建了 `POST /api/revisions/batch-status` 端点：接收 revision_ids 列表和 status，逐条更新并写入审计日志，返回 success_count/fail_count/failures 汇总
+- 在 `backend/app/gateway/supabase_gateway.py` 中新增 `batch_update_revision_status` 方法（使用 Supabase `.in_()` 批量更新）
+- 更新了 `frontend/src/components/RevisionSidebar.tsx`：
+  - 新增批量操作工具栏（全选/取消全选复选框 + 选中计数）
+  - "批量接受低风险"按钮：一键接受所有 risk_level != 'high' 且 status = 'pending' 的修订
+  - "批量拒绝"按钮：拒绝已勾选的修订（仅可操作状态显示复选框）
+  - 批量操作前弹出确认对话框，显示影响的修订数量
+  - 操作后汇总显示成功/失败数量
+- 修改了 `backend/app/api/revisions.py`（68 行新增）、`backend/app/gateway/supabase_gateway.py`（11 行新增）、`frontend/src/components/RevisionSidebar.tsx`（277 行变更）
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - 批量操作逐条处理并使用 try/except 包裹每条，确保单条失败不阻塞其他条目
+  - 批量审计日志的 details 中设置 batch=True 标记，与单条操作区分
+  - 前端 Set 类型的状态更新需通过 `setSelectedIds(prev => new Set(prev))` 模式确保 React 检测到变化
+  - Checkbox indeterminate 属性用于部分选中状态（someSelected && !allSelected）
+  - 后续 US-029（未完成项面板）可参考本故事的批量确认弹窗 + 结果汇总模式
 ---
