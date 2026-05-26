@@ -36,7 +36,7 @@ US-005 |   done  | 构建 DOCX 文档结构树
 US-006 |   done  | 识别章节与标题层级
 US-007 |   done  | 识别表格结构与合并单元格
 US-008 |   done  | 生成 TemplateSlot 可填充位置
-US-009 | pending | LLM 辅助判断章节和表格语义类型
+US-009 |   done  | LLM 辅助判断章节和表格语义类型
 US-010 | pending | 生成未完成项（UnfinishedItem）
 US-011 | pending | 内容回写引擎与 Word/WPS 兼容验证
 US-012 | pending | 项目 CRUD API
@@ -197,4 +197,21 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 占位符检测优先级最高（continue 跳过后续检测），避免同一段落被重复标记为多种 slot_type
   - fill_strategy 与 slot_type 的对应关系：placeholder→replace, paragraph→replace/append, table_cell→cell_fill, heading_section→section_append, section_append→section_append
   - 后续 US-009 将通过 LLM 细化 expected_content_type，当前版本仅做关键词和占位符提取
+---
+
+## 2026-05-26 19:30 — US-009
+- 创建了 `app/gateway/model_gateway.py`：封装 LLM 调用，通过 httpx 异步请求 OpenAI 兼容 API
+- 创建了 `app/models/model_call_log.py`：ModelCallLogResponse Pydantic 模型
+- 创建了 `app/services/llm_classifier_service.py`：LLM 语义分类引擎，含章节和表格分类 prompt、LLM 调用、关键词降级规则
+- 在 `app/gateway/supabase_gateway.py` 中新增 insert_model_call_log、update_template_slot_content_type 方法
+- 在 `app/api/documents.py` 中新增 POST /api/documents/{id}/classify-slots 端点
+- LLM 失败降级：13 种章节类型 + 10 种表格类型的关键词规则作为 fallback
+- 每次 LLM 调用自动记录到 model_call_logs（scenario = 'semantic_classification'，含 token 数和耗时）
+- LLM JSON 响应解析支持三种格式：纯 JSON、```json``` 代码块、裸 {} 对象
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - ModelGateway 使用 httpx.AsyncClient 异步调用，超时 60s，temperature=0.3 保证输出稳定
+  - 分类结果回写时只更新实际变化的 slot，避免无效写操作
+  - model_call_logs 的 request_json 记录 prompt 摘要（类型+slot 数量），response_json 存储 LLM 返回原文
+  - 后续 US-017（AIRevision 生成引擎）可直接复用 ModelGateway 和 model_call_logs 记录模式
 ---
