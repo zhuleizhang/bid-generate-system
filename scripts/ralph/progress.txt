@@ -3,12 +3,18 @@
 # Created: 2026-05-26
 # Total stories: 42
 
+## Codebase Patterns
+- FastAPI 后端使用 Pydantic BaseSettings + lru_cache 管理配置，所有环境变量通过 get_settings() 读取
+- 后端项目结构：app/api/ (路由)、app/core/ (配置)、app/models/ (数据模型)、app/services/ (业务逻辑)、app/gateway/ (外部网关)
+- Docker 使用 python:3.12-slim 基础镜像，构建时需安装 gcc/libxml2-dev/libxslt-dev 以编译 lxml
+- .gitignore 已涵盖 Python/Node.js 常见忽略项（venv、__pycache__、node_modules、.env、.mypy_cache）
+
 ================================================================================
-CURRENT: US-001 — 初始化 FastAPI 后端项目结构
+CURRENT: US-002 — 初始化 Next.js 前端项目结构
 STATUS:   pending
 ================================================================================
 
-US-001 | pending | 初始化 FastAPI 后端项目结构
+US-001 |   done  | 初始化 FastAPI 后端项目结构
 US-002 | pending | 初始化 Next.js 前端项目结构
 US-003 | pending | 创建完整数据库 Schema（所有表）
 US-004 | pending | DOCX 上传、解包与存储 API
@@ -50,3 +56,13 @@ US-039 | pending | 知识库管理页面
 US-040 | pending | Citation 来源引用展示
 US-041 | pending | 经验推荐确认页面
 US-042 | pending | 相似案例与章节推荐侧边栏
+
+## 2026-05-26 11:30 — US-001
+- 创建了 FastAPI 后端项目骨架：app/main.py、app/core/config.py、app/api/router.py
+- 创建了 requirements.txt（10 个依赖）、Dockerfile、.env.example
+- 更新了 .gitignore，添加 .env 和 .mypy_cache 忽略规则
+- **供后续迭代参考的经验：**
+  - 项目根目录 CLAUDE.md 已含注释规范，所有新增代码遵循了中文注释原则
+  - venv 已预装所有依赖（fastapi、uvicorn、lxml、python-docx、docx2python、pdfplumber、pypdf、httpx、supabase、mypy），新故事可直接开发
+  - typecheck 使用 `mypy app/ --ignore-missing-imports`，因为 supabase 等第三方库可能缺少类型存根
+---
