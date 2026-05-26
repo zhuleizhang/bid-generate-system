@@ -307,6 +307,12 @@ class SupabaseGateway:
         """删除指定文档关联的所有招标要求（用于重新提取）。"""
         self.client.table("requirements").delete().eq("source_document_id", doc_id).execute()
 
+    def update_requirement(self, requirement_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        """更新单条招标要求，返回更新后的记录。"""
+        result = self.client.table("requirements").update(data).eq("id", requirement_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else None
+
     # ── Bid Tasks ──────────────────────────────────────────────────
 
     def insert_bid_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:

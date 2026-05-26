@@ -13,11 +13,23 @@ import {
   Spin,
   Descriptions,
   Empty,
+  Tabs,
+  Modal,
+  Form,
+  Input,
+  Select,
+  Switch,
+  Tooltip,
+  Popconfirm,
+  Collapse,
 } from "antd";
 import {
   InboxOutlined,
   FileOutlined,
   ReloadOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  PlusOutlined,
 } from "@ant-design/icons";
 import type { UploadFile, RcFile } from "antd/es/upload/interface";
 import { useParams } from "next/navigation";
@@ -32,34 +44,43 @@ import {
   DOCUMENT_TYPE_LABELS,
   DOCUMENT_TYPE_COLORS,
 } from "@/lib/types/project_file";
+import type {
+  RequirementDBItem,
+  RequirementCreate,
+  RequirementUpdate,
+} from "@/lib/types/requirement";
+import {
+  REQUIREMENT_TYPE_LABELS,
+  REQUIREMENT_TYPE_ORDER,
+  PRIORITY_LABELS,
+  PRIORITY_COLORS,
+  RISK_LEVEL_LABELS,
+  RISK_LEVEL_COLORS,
+  REQUIREMENT_TYPE_OPTIONS,
+} from "@/lib/types/requirement";
 
 const { Dragger } = Upload;
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 
-// 允许的文件扩展名
 const ALLOWED_EXTENSIONS = [".docx", ".pdf", ".doc"];
 const ALLOWED_EXTENSIONS_DISPLAY = ALLOWED_EXTENSIONS.join(", ");
 
-// 扩展名 → document_type 默认映射
 const DEFAULT_TYPE_MAP: Record<string, string> = {
   ".docx": "bid_template",
   ".pdf": "tender_doc",
   ".doc": "company_material",
 };
 
-/** 从扩展名推断 document_type */
 function getDefaultDocType(filename: string): string {
   const ext = "." + (filename.split(".").pop()?.toLowerCase() || "");
   return DEFAULT_TYPE_MAP[ext] || "company_material";
 }
 
-/** 检查文件扩展名是否允许 */
 function isAllowedFile(filename: string): boolean {
   const ext = "." + (filename.split(".").pop()?.toLowerCase() || "");
   return ALLOWED_EXTENSIONS.includes(ext);
 }
 
-/** 格式化文件大小为可读字符串 */
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
@@ -72,38 +93,72 @@ export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [project, setProject] = useState<Project | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
+
+  // 文件相关状态
   const [files, setFiles] = useState<ProjectFileItem[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadFileList, setUploadFileList] = useState<UploadFile[]>([]);
 
-  // 加载项目详情
+  // 招标要求相关状态
+  const [requirements, setRequirements] = useState<RequirementDBItem[]>([]);
+  const [reqLoading, setReqLoading] = useState(false);
+
+  // 编辑/添加 Modal 状态
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingReq, setEditingReq] = useState<RequirementDBItem | null>(null);
+  const [editForm] = Form.useForm();
+
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [addForm] = Form.useForm();
+
+  // 加载项目详情、文件列表和招标要求
   useEffect(() => {
     let cancelled = false;
-    const loadProject = async () => {
+    const loadAll = async () => {
       try {
         const data = await api.get<Project>(`/api/projects/${id}`);
-        if (!cancelled) {
-          setProject(data);
-          // 项目加载成功后拉取文件列表
-          const fileData = await api.get<{ files: ProjectFileItem[] }>(
-            `/api/projects/${id}/files`
-          );
-          if (!cancelled) setFiles(fileData.files);
-        }
+        if (!cancelled) setProject(data);
       } catch {
         if (!cancelled) message.error("加载项目信息失败");
+      }
+
+      // 加载文件列表
+      if (!cancelled) setFilesLoading(true);
+      try {
+        const fileData = await api.get<{ files: ProjectFileItem[] }>(
+          `/api/projects/${id}/files`
+        );
+        if (!cancelled) setFiles(fileData.files);
+      } catch {
+        // 静默失败
       } finally {
-        if (!cancelled) setPageLoading(false);
+        if (!cancelled) setFilesLoading(false);
+      }
+
+      // 加载招标要求
+      if (!cancelled) setReqLoading(true);
+      try {
+        const reqData = await api.get<RequirementDBItem[]>(
+          `/api/projects/${id}/requirements`
+        );
+        if (!cancelled) setRequirements(reqData.filter((r) => r.status !== "ignored"));
+      } catch {
+        // 静默失败
+      } finally {
+        if (!cancelled) {
+          setReqLoading(false);
+          setPageLoading(false);
+        }
       }
     };
-    loadProject();
+    loadAll();
     return () => {
       cancelled = true;
     };
   }, [id]);
 
-  // 刷新文件列表
+  // 手动刷新文件列表
   const fetchFiles = useCallback(async () => {
     setFilesLoading(true);
     try {
@@ -118,7 +173,23 @@ export default function ProjectDetailPage() {
     }
   }, [id]);
 
-  // 上传前校验文件类型
+  // 手动刷新招标要求列表
+  const fetchRequirements = useCallback(async () => {
+    setReqLoading(true);
+    try {
+      const data = await api.get<RequirementDBItem[]>(
+        `/api/projects/${id}/requirements`
+      );
+      setRequirements(data.filter((r) => r.status !== "ignored"));
+    } catch {
+      message.error("加载招标要求失败");
+    } finally {
+      setReqLoading(false);
+    }
+  }, [id]);
+
+  // ── 文件上传逻辑 ──────────────────────────────────────────────
+
   const handleBeforeUpload = (file: RcFile) => {
     if (!isAllowedFile(file.name)) {
       message.error(
@@ -126,7 +197,6 @@ export default function ProjectDetailPage() {
       );
       return Upload.LIST_IGNORE;
     }
-    // 50MB 大小限制
     const maxSize = 50 * 1024 * 1024;
     if (file.size > maxSize) {
       message.error(`文件 "${file.name}" 超过 50MB 限制`);
@@ -135,7 +205,6 @@ export default function ProjectDetailPage() {
     return true;
   };
 
-  // 自定义上传逻辑
   const handleCustomRequest = async (options: {
     file: string | Blob | RcFile;
     filename?: string;
@@ -148,14 +217,10 @@ export default function ProjectDetailPage() {
 
     const formData = new FormData();
     formData.append("files", rcFile, filename || rcFile.name);
-
-    // 在文件对象上挂载 document_type，供后续使用
-    const docType = getDefaultDocType(rcFile.name);
-    formData.append("document_type", docType);
+    formData.append("document_type", getDefaultDocType(rcFile.name));
 
     setUploading(true);
     try {
-      // 手动 fetch 以支持上传进度
       const url = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/projects/${id}/files/upload`;
       const xhr = new XMLHttpRequest();
       xhr.open("POST", url);
@@ -212,12 +277,69 @@ export default function ProjectDetailPage() {
     }
   };
 
-  // 处理上传状态变化
   const handleUploadChange = (info: { file: UploadFile; fileList: UploadFile[] }) => {
     setUploadFileList(info.fileList);
   };
 
-  // 按类型分组文件
+  // ── 招标要求 CRUD ─────────────────────────────────────────────
+
+  const openEditModal = (req: RequirementDBItem) => {
+    setEditingReq(req);
+    editForm.setFieldsValue(req);
+    setEditModalOpen(true);
+  };
+
+  const handleEditSave = async () => {
+    try {
+      const values: RequirementUpdate = await editForm.validateFields();
+      if (!editingReq) return;
+      await api.put<RequirementDBItem>(
+        `/api/projects/${id}/requirements/${editingReq.id}`,
+        values
+      );
+      message.success("更新成功");
+      setEditModalOpen(false);
+      setEditingReq(null);
+      fetchRequirements();
+    } catch (err) {
+      if (err && typeof err === "object" && "errorFields" in err) return; // 表单校验失败
+      message.error("更新失败");
+    }
+  };
+
+  const handleDelete = async (reqId: string) => {
+    try {
+      await api.patch(`/api/projects/${id}/requirements/${reqId}/status?status=ignored`);
+      message.success("已删除");
+      fetchRequirements();
+    } catch {
+      message.error("删除失败");
+    }
+  };
+
+  const openAddModal = () => {
+    addForm.resetFields();
+    setAddModalOpen(true);
+  };
+
+  const handleAddSave = async () => {
+    try {
+      const values: RequirementCreate = await addForm.validateFields();
+      await api.post<RequirementDBItem>(
+        `/api/projects/${id}/requirements`,
+        values
+      );
+      message.success("添加成功");
+      setAddModalOpen(false);
+      fetchRequirements();
+    } catch (err) {
+      if (err && typeof err === "object" && "errorFields" in err) return;
+      message.error("添加失败");
+    }
+  };
+
+  // ── 文件按类型分组 ───────────────────────────────────────────
+
   const groupedFiles: Record<string, ProjectFileItem[]> = {
     bid_template: [],
     tender_doc: [],
@@ -231,6 +353,18 @@ export default function ProjectDetailPage() {
     }
   }
 
+  // ── 招标要求按类型分组 ───────────────────────────────────────
+
+  const groupedRequirements: Record<string, RequirementDBItem[]> = {};
+  for (const r of requirements) {
+    if (!groupedRequirements[r.requirement_type]) {
+      groupedRequirements[r.requirement_type] = [];
+    }
+    groupedRequirements[r.requirement_type].push(r);
+  }
+
+  // ── 页面状态 ──────────────────────────────────────────────────
+
   if (pageLoading) {
     return (
       <div style={{ textAlign: "center", padding: 80 }}>
@@ -243,9 +377,10 @@ export default function ProjectDetailPage() {
     return <Text type="secondary">项目不存在或已被删除</Text>;
   }
 
-  return (
+  // ── 文件管理 Tab ──────────────────────────────────────────────
+
+  const filesTab = (
     <div>
-      {/* 项目基本信息 */}
       <Card style={{ marginBottom: 24 }}>
         <Title level={4} style={{ marginBottom: 16 }}>
           {project.name}
@@ -271,7 +406,6 @@ export default function ProjectDetailPage() {
         </Descriptions>
       </Card>
 
-      {/* 文件上传区域 */}
       <Card title="文件上传" style={{ marginBottom: 24 }}>
         <Dragger
           name="files"
@@ -296,7 +430,6 @@ export default function ProjectDetailPage() {
         </Dragger>
       </Card>
 
-      {/* 已上传文件列表 */}
       <Card
         title={
           <Space>
@@ -366,6 +499,287 @@ export default function ProjectDetailPage() {
           </>
         )}
       </Card>
+    </div>
+  );
+
+  // ── 招标要求 Tab ──────────────────────────────────────────────
+
+  const requirementsTab = (
+    <Card
+      title="招标要求"
+      extra={
+        <Space>
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={fetchRequirements}
+            loading={reqLoading}
+          >
+            刷新
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={openAddModal}
+          >
+            添加要求
+          </Button>
+        </Space>
+      }
+    >
+      {reqLoading && requirements.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 40 }}>
+          <Spin />
+        </div>
+      ) : requirements.length === 0 ? (
+        <Empty description="暂无招标要求，请先上传招标文件并解析提取">
+          <Button type="primary" onClick={openAddModal}>
+            手动添加要求
+          </Button>
+        </Empty>
+      ) : (
+        <Collapse
+          defaultActiveKey={REQUIREMENT_TYPE_ORDER.filter(
+            (t) => groupedRequirements[t]?.length > 0
+          )}
+          items={REQUIREMENT_TYPE_ORDER.filter(
+            (type) => groupedRequirements[type]?.length > 0
+          ).map((type) => ({
+            key: type,
+            label: (
+              <Space>
+                <span>{REQUIREMENT_TYPE_LABELS[type] || type}</span>
+                <Tag>{groupedRequirements[type].length}</Tag>
+              </Space>
+            ),
+            children: (
+              <List
+                dataSource={groupedRequirements[type]}
+                renderItem={(item) => (
+                  <List.Item
+                    actions={[
+                      <Button
+                        key="edit"
+                        type="link"
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={() => openEditModal(item)}
+                      />,
+                      <Popconfirm
+                        key="delete"
+                        title="确认删除该要求？"
+                        description="删除后可在重新解析时恢复"
+                        onConfirm={() => handleDelete(item.id)}
+                        okText="确认"
+                        cancelText="取消"
+                      >
+                        <Button
+                          type="link"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                        />
+                      </Popconfirm>,
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={
+                        <Space wrap>
+                          <Text strong>{item.title}</Text>
+                          <Tag color={PRIORITY_COLORS[item.priority]}>
+                            {PRIORITY_LABELS[item.priority]}
+                          </Tag>
+                          {item.is_mandatory && (
+                            <Tag color="red">强制</Tag>
+                          )}
+                          <Tag color={RISK_LEVEL_COLORS[item.risk_level]}>
+                            {RISK_LEVEL_LABELS[item.risk_level]}风险
+                          </Tag>
+                        </Space>
+                      }
+                      description={
+                        <>
+                          <Paragraph
+                            ellipsis={{ rows: 2, expandable: true, symbol: "展开" }}
+                            style={{ marginBottom: 4 }}
+                          >
+                            {item.description || "暂无描述"}
+                          </Paragraph>
+                          {item.source_text && (
+                            <Tooltip title={item.source_text}>
+                              <Text
+                                type="secondary"
+                                style={{ fontSize: 12 }}
+                                ellipsis
+                              >
+                                原文：{item.source_text}
+                              </Text>
+                            </Tooltip>
+                          )}
+                        </>
+                      }
+                    />
+                  </List.Item>
+                )}
+              />
+            ),
+          }))}
+        />
+      )}
+    </Card>
+  );
+
+  return (
+    <div>
+      <Tabs
+        defaultActiveKey="files"
+        items={[
+          { key: "files", label: "文件管理", children: filesTab },
+          { key: "requirements", label: "招标要求", children: requirementsTab },
+        ]}
+      />
+
+      {/* 编辑 Modal */}
+      <Modal
+        title="编辑招标要求"
+        open={editModalOpen}
+        onOk={handleEditSave}
+        onCancel={() => {
+          setEditModalOpen(false);
+          setEditingReq(null);
+        }}
+        okText="保存"
+        cancelText="取消"
+        width={640}
+        destroyOnClose
+      >
+        <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="requirement_type" label="类型">
+            <Select options={REQUIREMENT_TYPE_OPTIONS} />
+          </Form.Item>
+          <Form.Item
+            name="title"
+            label="标题"
+            rules={[{ required: true, message: "请输入标题" }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="source_text" label="原文摘录">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Space size="large">
+            <Form.Item name="priority" label="优先级" style={{ marginBottom: 0 }}>
+              <Select
+                style={{ width: 100 }}
+                options={[
+                  { value: "high", label: "高" },
+                  { value: "medium", label: "中" },
+                  { value: "low", label: "低" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="risk_level" label="风险等级" style={{ marginBottom: 0 }}>
+              <Select
+                style={{ width: 100 }}
+                options={[
+                  { value: "blocking", label: "废标" },
+                  { value: "high", label: "高" },
+                  { value: "medium", label: "中" },
+                  { value: "low", label: "低" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="is_mandatory"
+              label="是否强制"
+              valuePropName="checked"
+              style={{ marginBottom: 0 }}
+            >
+              <Switch />
+            </Form.Item>
+          </Space>
+        </Form>
+      </Modal>
+
+      {/* 添加 Modal */}
+      <Modal
+        title="添加招标要求"
+        open={addModalOpen}
+        onOk={handleAddSave}
+        onCancel={() => setAddModalOpen(false)}
+        okText="添加"
+        cancelText="取消"
+        width={640}
+        destroyOnClose
+      >
+        <Form
+          form={addForm}
+          layout="vertical"
+          style={{ marginTop: 16 }}
+          initialValues={{
+            requirement_type: "business_requirement",
+            priority: "medium",
+            risk_level: "medium",
+            is_mandatory: false,
+          }}
+        >
+          <Form.Item
+            name="requirement_type"
+            label="类型"
+            rules={[{ required: true, message: "请选择类型" }]}
+          >
+            <Select options={REQUIREMENT_TYPE_OPTIONS} />
+          </Form.Item>
+          <Form.Item
+            name="title"
+            label="标题"
+            rules={[{ required: true, message: "请输入标题" }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="source_text" label="原文摘录">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Space size="large">
+            <Form.Item name="priority" label="优先级" style={{ marginBottom: 0 }}>
+              <Select
+                style={{ width: 100 }}
+                options={[
+                  { value: "high", label: "高" },
+                  { value: "medium", label: "中" },
+                  { value: "low", label: "低" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="risk_level" label="风险等级" style={{ marginBottom: 0 }}>
+              <Select
+                style={{ width: 100 }}
+                options={[
+                  { value: "blocking", label: "废标" },
+                  { value: "high", label: "高" },
+                  { value: "medium", label: "中" },
+                  { value: "low", label: "低" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="is_mandatory"
+              label="是否强制"
+              valuePropName="checked"
+              style={{ marginBottom: 0 }}
+            >
+              <Switch />
+            </Form.Item>
+          </Space>
+        </Form>
+      </Modal>
     </div>
   );
 }
