@@ -5,10 +5,12 @@ from fastapi import APIRouter, UploadFile, File
 from app.services.document_service import process_docx_upload, parse_and_store_document, detect_and_store_sections
 from app.services.template_slot_service import generate_template_slots
 from app.services.llm_classifier_service import classify_template_slots
+from app.services.unfinished_item_service import generate_unfinished_items
 from app.models.document import DocumentResponse, UploadError
 from app.models.document_node import ParseResult
 from app.models.section import SectionDetectionResult
 from app.models.template_slot import SlotGenerationResult
+from app.models.unfinished_item import UnfinishedItemGenerationResult
 from app.gateway.supabase_gateway import SupabaseGateway
 
 documents_router = APIRouter(prefix="/documents", tags=["documents"])
@@ -64,3 +66,16 @@ async def classify_document_slots(doc_id: str):
     """对文档的 heading_section 和 table_cell 类型 slot 进行 LLM 语义分类，
     分类结果回写到 expected_content_type，LLM 失败时降级为关键词规则匹配。"""
     return await classify_template_slots(doc_id)
+
+
+@documents_router.post("/{doc_id}/generate-unfinished", response_model=UnfinishedItemGenerationResult)
+async def generate_document_unfinished(doc_id: str):
+    """扫描文档中的低置信度 slot、嵌套表格等无法安全处理的位置，生成 UnfinishedItem 记录。"""
+    return await generate_unfinished_items(doc_id)
+
+
+@documents_router.get("/{doc_id}/unfinished")
+async def get_document_unfinished(doc_id: str):
+    """查询指定文档的所有 UnfinishedItem 记录，按 risk_level 降序排列。"""
+    gw = SupabaseGateway()
+    return gw.get_unfinished_items(doc_id)

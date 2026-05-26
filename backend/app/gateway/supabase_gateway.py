@@ -165,6 +165,40 @@ class SupabaseGateway:
 
     # ── Model Call Logs ─────────────────────────────────────────
 
+    # ── Unfinished Items ────────────────────────────────────────
+
+    def insert_unfinished_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """批量插入 UnfinishedItem 记录。"""
+        all_inserted: list[dict[str, Any]] = []
+        batch_size = 100
+        for i in range(0, len(items), batch_size):
+            batch = items[i : i + batch_size]
+            result = self.client.table("unfinished_items").insert(batch).execute()
+            inserted: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+            all_inserted.extend(inserted)
+        return all_inserted
+
+    def delete_unfinished_items(self, document_id: str) -> None:
+        """删除指定文档的所有 UnfinishedItem 记录。"""
+        self.client.table("unfinished_items").delete().eq("document_id", document_id).execute()
+
+    def get_unfinished_items(self, document_id: str) -> list[dict[str, Any]]:
+        """查询指定文档的所有 UnfinishedItem 记录，按 risk_level 降序排列。"""
+        result = (
+            self.client.table("unfinished_items")
+            .select("*")
+            .eq("document_id", document_id)
+            .order("created_at")
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        # risk_level 降序：blocking > high > medium > low
+        risk_order = {"blocking": 0, "high": 1, "medium": 2, "low": 3}
+        items.sort(key=lambda x: risk_order.get(x.get("risk_level", "low"), 99))
+        return items
+
+    # ── Model Call Logs ─────────────────────────────────────────
+
     def insert_model_call_log(self, data: dict[str, Any]) -> dict[str, Any]:
         """插入一条 LLM 调用日志记录。"""
         result = self.client.table("model_call_logs").insert(data).execute()
