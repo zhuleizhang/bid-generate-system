@@ -35,8 +35,15 @@ class SupabaseGateway:
         return self.client.storage.from_(self.bucket).get_public_url(path)
 
     def download_file(self, path: str) -> bytes:
-        """从 Storage 下载文件内容。"""
+        """从 Storage 下载文件内容（按 bucket 相对路径）。"""
         return self.client.storage.from_(self.bucket).download(path)
+
+    def download_file_by_url(self, url: str) -> bytes:
+        """通过公开 URL 下载文件内容。"""
+        import httpx
+        resp = httpx.get(url, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.content
 
     def insert_document(self, data: dict[str, Any]) -> dict[str, Any]:
         """在 documents 表中创建记录，返回插入后的文档数据。"""
@@ -49,3 +56,43 @@ class SupabaseGateway:
         result = self.client.table("documents").select("*").eq("id", doc_id).execute()
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items[0] if items else None
+
+    # ── Document Nodes ──────────────────────────────────────────
+
+    def insert_document_nodes(self, nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """批量插入文档节点，返回插入后的节点列表（含数据库生成的 id）。"""
+        all_inserted: list[dict[str, Any]] = []
+        # 分批插入，每批最多 100 条，避免单次请求过大
+        batch_size = 100
+        for i in range(0, len(nodes), batch_size):
+            batch = nodes[i : i + batch_size]
+            result = self.client.table("document_nodes").insert(batch).execute()
+            items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+            all_inserted.extend(items)
+        return all_inserted
+
+    def delete_document_nodes(self, document_id: str) -> None:
+        """删除指定文档的所有解析节点。"""
+        self.client.table("document_nodes").delete().eq("document_id", document_id).execute()
+
+    def get_document_nodes(self, document_id: str) -> list[dict[str, Any]]:
+        """查询指定文档的所有节点，按 order_index 排序。"""
+        result = (
+            self.client.table("document_nodes")
+            .select("*")
+            .eq("document_id", document_id)
+            .order("order_index")
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items
+
+    def update_document_status(self, doc_id: str, status: str) -> dict[str, Any]:
+        """更新文档状态。"""
+        result = self.client.table("documents").update({"status": status}).eq("id", doc_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else {}
+
+    def update_node_parent(self, node_id: str, parent_node_id: str) -> None:
+        """更新单个节点的 parent_node_id。"""
+        self.client.table("document_nodes").update({"parent_node_id": parent_node_id}).eq("id", node_id).execute()
