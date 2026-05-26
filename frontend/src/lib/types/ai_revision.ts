@@ -12,7 +12,7 @@ export interface AIRevision {
   related_experience_ids: string[];
   risk_level: "low" | "medium" | "high";
   confidence: number;
-  status: "pending" | "need_human_confirm" | "confirmed" | "rejected";
+  status: "pending" | "accepted" | "rejected" | "edited_then_accepted" | "need_human_confirm";
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -47,14 +47,16 @@ export const RISK_LEVEL_COLORS: Record<string, string> = {
 /** 状态常量映射 */
 export const STATUS_LABELS: Record<string, string> = {
   pending: "待审阅",
-  need_human_confirm: "待确认",
-  confirmed: "已确认",
+  accepted: "已接受",
   rejected: "已拒绝",
+  edited_then_accepted: "已编辑接受",
+  need_human_confirm: "待确认",
 };
 
 export const STATUS_COLORS: Record<string, string> = {
   pending: "#1677ff",
-  need_human_confirm: "#fa8c16",
-  confirmed: "#52c41a",
+  accepted: "#52c41a",
   rejected: "#ff4d4f",
+  edited_then_accepted: "#722ed1",
+  need_human_confirm: "#fa8c16",
 };

@@ -408,3 +408,35 @@ class SupabaseGateway:
         )
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items
+
+    def update_ai_revision_status(self, revision_id: str, status: str, **fields: Any) -> dict[str, Any]:
+        """更新 AIRevision 状态和可选字段（如 ai_content）。"""
+        update_data: dict[str, Any] = {"status": status}
+        update_data.update(fields)
+        result = (
+            self.client.table("ai_revisions")
+            .update(update_data)
+            .eq("id", revision_id)
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else {}
+
+    def get_ai_revision(self, revision_id: str) -> dict[str, Any] | None:
+        """按 ID 查询单条 AIRevision。"""
+        result = (
+            self.client.table("ai_revisions")
+            .select("*")
+            .eq("id", revision_id)
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else None
+
+    # ── Audit Logs ─────────────────────────────────────────────────
+
+    def insert_audit_log(self, data: dict[str, Any]) -> dict[str, Any]:
+        """插入操作审计日志。"""
+        result = self.client.table("audit_logs").insert(data).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else {}

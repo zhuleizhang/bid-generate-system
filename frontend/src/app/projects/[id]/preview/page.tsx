@@ -33,6 +33,7 @@ import {
 } from "@/lib/types/ai_revision";
 import ChapterTree from "@/components/ChapterTree";
 import type { SectionItem } from "@/components/ChapterTree";
+import RevisionSidebar from "@/components/RevisionSidebar";
 
 const { Title, Text } = Typography;
 
@@ -98,8 +99,8 @@ export default function PreviewPage() {
   useEffect(() => {
     if (!selectedDocId) return;
     let cancelled = false;
-
-    const loadPreview = async () => {
+    // 提取为独立 async 函数避免 eslint set-state-in-effect 警告
+    const doLoad = async () => {
       setPreviewLoading(true);
       setPreviewData(null);
       setSelectedSectionId(null);
@@ -114,10 +115,23 @@ export default function PreviewPage() {
         if (!cancelled) setPreviewLoading(false);
       }
     };
-    loadPreview();
+    doLoad();
     return () => {
       cancelled = true;
     };
+  }, [selectedDocId]);
+
+  // 侧边栏操作后刷新预览数据
+  const handleRevisionRefresh = useCallback(async () => {
+    if (!selectedDocId) return;
+    try {
+      const data = await api.get<PreviewData>(
+        `/api/documents/${selectedDocId}/preview`
+      );
+      setPreviewData(data);
+    } catch {
+      message.error("刷新预览失败");
+    }
   }, [selectedDocId]);
 
   // 将 AIRevision 列表构建为按 ID 查找的映射
@@ -375,6 +389,32 @@ export default function PreviewPage() {
               </Popover>
             ) : null}
           </Card>
+
+          {/* 右侧 AIRevision 侧边栏 */}
+          {previewData?.ai_revisions && previewData.ai_revisions.length > 0 && (
+            <Card
+              title="AI 修订列表"
+              size="small"
+              style={{
+                width: 360,
+                flexShrink: 0,
+                display: "flex",
+                flexDirection: "column",
+              }}
+              styles={{
+                body: {
+                  flex: 1,
+                  overflow: "auto",
+                  padding: 8,
+                },
+              }}
+            >
+              <RevisionSidebar
+                revisions={previewData.ai_revisions}
+                onStatusChange={handleRevisionRefresh}
+              />
+            </Card>
+          )}
         </div>
       )}
     </div>
