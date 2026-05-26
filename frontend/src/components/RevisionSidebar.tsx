@@ -13,12 +13,14 @@ import {
   Tooltip,
   Empty,
   Typography,
+  Checkbox,
 } from "antd";
 import {
   CheckOutlined,
   CloseOutlined,
   EditOutlined,
   ExclamationCircleOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import type { AIRevision } from "@/lib/types/ai_revision";
@@ -62,7 +64,6 @@ function groupBySection(revisions: AIRevision[]): SectionGroup[] {
       map.set(path, [rev]);
     }
   }
-  // 排序：非"未分类"在前，同组按 section_path 字母序
   return Array.from(map.entries())
     .sort(([a], [b]) => {
       if (a === "未分类") return 1;
@@ -70,6 +71,11 @@ function groupBySection(revisions: AIRevision[]): SectionGroup[] {
       return a.localeCompare(b);
     })
     .map(([sectionPath, revisions]) => ({ sectionPath, revisions }));
+}
+
+/** 可批量操作的修订状态 */
+function isActionable(rev: AIRevision): boolean {
+  return rev.status === "pending" || rev.status === "need_human_confirm";
 }
 
 export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
@@ -80,7 +86,23 @@ export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
   const [editingRevision, setEditingRevision] = useState<AIRevision | null>(null);
   const [editContent, setEditContent] = useState("");
 
+  // 批量操作状态
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [batchConfirmAction, setBatchConfirmAction] = useState<"" | "accept_low_risk" | "reject_selected">("");
+
   const sectionGroups = useMemo(() => groupBySection(revisions), [revisions]);
+
+  const actionableRevisions = useMemo(
+    () => revisions.filter(isActionable),
+    [revisions],
+  );
+
+  const lowRiskPendingRevisions = useMemo(
+    () => revisions.filter((r) => r.risk_level !== "high" && r.status === "pending"),
+    [revisions],
+  );
 
   const handleStatusChange = useCallback(
     async (revisionId: string, status: string, aiContent?: string) => {
@@ -122,9 +144,190 @@ export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
     setEditingRevision(null);
   }, [editingRevision, editContent, handleStatusChange]);
 
+  // ── 批量选择 ──────────────────────────────────────────────
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedIds(new Set(actionableRevisions.map((r) => r.id)));
+  }, [actionableRevisions]);
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleToggleSelect = useCallback((revId: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(revId);
+      } else {
+        next.delete(revId);
+      }
+      return next;
+    });
+  }, []);
+
+  // ── 批量操作触发 ──────────────────────────────────────────
+
+  const handleBatchAcceptLowRisk = useCallback(() => {
+    setBatchConfirmAction("accept_low_risk");
+    setBatchConfirmOpen(true);
+  }, []);
+
+  const handleBatchReject = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    setBatchConfirmAction("reject_selected");
+    setBatchConfirmOpen(true);
+  }, [selectedIds]);
+
+  const executeBatchOperation = useCallback(
+    async (ids: string[], status: string, label: string) => {
+      setBatchLoading(true);
+      try {
+        const result = await api.post<{
+          success_count: number;
+          fail_count: number;
+          failures: { revision_id: string; error: string }[];
+        }>("/api/revisions/batch-status", {
+          revision_ids: ids,
+          status,
+        });
+        if (result.fail_count === 0) {
+          message.success(`${label}完成：${result.success_count} 条`);
+        } else {
+          message.warning(
+            `${label}完成：${result.success_count} 条成功，${result.fail_count} 条失败`,
+          );
+        }
+        setSelectedIds(new Set());
+        onStatusChange();
+      } catch {
+        message.error(`${label}失败，请重试`);
+      } finally {
+        setBatchLoading(false);
+        setBatchConfirmOpen(false);
+      }
+    },
+    [onStatusChange],
+  );
+
+  const handleBatchConfirm = useCallback(() => {
+    if (batchConfirmAction === "accept_low_risk") {
+      const ids = lowRiskPendingRevisions.map((r) => r.id);
+      executeBatchOperation(ids, "accepted", "批量接受");
+    } else if (batchConfirmAction === "reject_selected") {
+      const ids = Array.from(selectedIds);
+      executeBatchOperation(ids, "rejected", "批量拒绝");
+    }
+  }, [batchConfirmAction, lowRiskPendingRevisions, selectedIds, executeBatchOperation]);
+
+  // ── 子渲染函数 ────────────────────────────────────────────
+
+  const renderCheckbox = (rev: AIRevision) => {
+    if (!isActionable(rev)) return null;
+    return (
+      <Checkbox
+        checked={selectedIds.has(rev.id)}
+        onChange={(e) => handleToggleSelect(rev.id, e.target.checked)}
+      />
+    );
+  };
+
+  const renderBatchToolbar = () => {
+    const allSelected = actionableRevisions.length > 0 && selectedIds.size === actionableRevisions.length;
+    const someSelected = selectedIds.size > 0;
+
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+          padding: "4px 0 8px 0",
+          borderBottom: "1px solid #f0f0f0",
+          marginBottom: 4,
+        }}
+      >
+        <Checkbox
+          checked={allSelected}
+          indeterminate={someSelected && !allSelected}
+          onChange={(e) => (e.target.checked ? handleSelectAll() : handleDeselectAll())}
+          disabled={actionableRevisions.length === 0}
+        >
+          <Text style={{ fontSize: 12 }}>
+            全选{actionableRevisions.length > 0 ? ` (${selectedIds.size}/${actionableRevisions.length})` : ""}
+          </Text>
+        </Checkbox>
+        <Space size={4} wrap style={{ marginLeft: "auto" }}>
+          <Tooltip title="接受所有低风险待处理修订（风险等级≠高 且 状态=待审阅）">
+            <Button
+              size="small"
+              type="primary"
+              ghost
+              icon={<ThunderboltOutlined />}
+              loading={batchLoading}
+              disabled={lowRiskPendingRevisions.length === 0}
+              onClick={handleBatchAcceptLowRisk}
+              style={{ fontSize: 12 }}
+            >
+              批量接受低风险
+            </Button>
+          </Tooltip>
+          <Tooltip title="拒绝已勾选的修订">
+            <Button
+              size="small"
+              danger
+              icon={<CloseOutlined />}
+              loading={batchLoading}
+              disabled={selectedIds.size === 0}
+              onClick={handleBatchReject}
+              style={{ fontSize: 12 }}
+            >
+              批量拒绝
+            </Button>
+          </Tooltip>
+        </Space>
+      </div>
+    );
+  };
+
+  const renderBatchConfirmModal = () => {
+    const isAccept = batchConfirmAction === "accept_low_risk";
+    const title = isAccept ? "批量接受低风险修订" : "批量拒绝修订";
+    const count = isAccept ? lowRiskPendingRevisions.length : selectedIds.size;
+    const actionLabel = isAccept ? "接受" : "拒绝";
+
+    return (
+      <Modal
+        title={title}
+        open={batchConfirmOpen}
+        onOk={handleBatchConfirm}
+        onCancel={() => setBatchConfirmOpen(false)}
+        okText={`确认${actionLabel}（${count} 条）`}
+        cancelText="取消"
+        confirmLoading={batchLoading}
+        okButtonProps={{ danger: !isAccept }}
+      >
+        <div style={{ padding: "12px 0" }}>
+          <Paragraph>
+            即将{actionLabel} <Text strong>{count}</Text> 条修订：
+          </Paragraph>
+          {isAccept ? (
+            <Paragraph type="secondary" style={{ fontSize: 12 }}>
+              仅包含风险等级为&ldquo;低风险&rdquo;或&ldquo;中风险&rdquo;且状态为&ldquo;待审阅&rdquo;的修订。高风险和已确认的修订不会被处理。
+            </Paragraph>
+          ) : (
+            <Paragraph type="secondary" style={{ fontSize: 12 }}>
+              仅处理您手动勾选的修订。
+            </Paragraph>
+          )}
+        </div>
+      </Modal>
+    );
+  };
+
   const renderActionButtons = (rev: AIRevision) => {
-    const isActive = rev.status === "pending" || rev.status === "need_human_confirm";
-    if (!isActive) return null;
+    if (!isActionable(rev)) return null;
 
     return (
       <Space size={2} wrap>
@@ -190,6 +393,9 @@ export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
 
   return (
     <>
+      {/* 批量操作工具栏 */}
+      {renderBatchToolbar()}
+
       <Collapse
         defaultActiveKey={sectionGroups.map((g) => g.sectionPath)}
         size="small"
@@ -226,6 +432,7 @@ export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
                 >
                   {/* 标签行 */}
                   <div style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                    {renderCheckbox(rev)}
                     <Tag
                       color={REVISION_TYPE_COLORS[rev.revision_type]}
                       style={{ fontSize: 11, lineHeight: "18px" }}
@@ -319,6 +526,9 @@ export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
           </div>
         )}
       </Modal>
+
+      {/* 批量操作确认弹窗 */}
+      {renderBatchConfirmModal()}
     </>
   );
 }

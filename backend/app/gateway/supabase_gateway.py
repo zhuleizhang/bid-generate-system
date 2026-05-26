@@ -433,6 +433,17 @@ class SupabaseGateway:
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items[0] if items else None
 
+    def batch_update_revision_status(self, revision_ids: list[str], status: str) -> list[dict[str, Any]]:
+        """批量更新 AIRevision 状态，返回更新后的记录列表。"""
+        result = (
+            self.client.table("ai_revisions")
+            .update({"status": status})
+            .in_("id", revision_ids)
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items
+
     # ── Audit Logs ─────────────────────────────────────────────────
 
     def insert_audit_log(self, data: dict[str, Any]) -> dict[str, Any]:
