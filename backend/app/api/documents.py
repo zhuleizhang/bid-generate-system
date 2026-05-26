@@ -5,6 +5,7 @@ import json
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import Response
+from lxml import html as lxml_html
 import mammoth
 
 from app.services.document_service import process_docx_upload, parse_and_store_document, detect_and_store_sections
@@ -248,16 +249,35 @@ async def preview_document(doc_id: str):
     except Exception:
         raise HTTPException(status_code=500, detail="DOCX 转 HTML 失败")
 
-    html = result.value
+    html_content = result.value
     messages = [str(m) for m in result.messages] if result.messages else []
 
     # 获取章节结构
     sections = gw.get_section_contents(doc_id)
 
+    # 在 HTML 中为各章节标题注入锚点 ID，供前端导航滚动定位
+    if sections:
+        try:
+            tree = lxml_html.fromstring(html_content)
+            title_to_section: dict[str, str] = {}
+            for s in sections:
+                key = s["title"].strip()
+                if key:
+                    title_to_section[key] = s["section_id"]
+
+            for h_tag in tree.iter("h1", "h2", "h3", "h4", "h5", "h6"):
+                text = (h_tag.text_content() or "").strip()
+                if text in title_to_section:
+                    h_tag.set("id", f"sec-{title_to_section[text]}")
+
+            html_content = lxml_html.tostring(tree, encoding="unicode", method="html")
+        except Exception:
+            pass  # 锚点注入失败不阻塞预览
+
     return {
         "document_id": doc_id,
         "document_name": doc.get("name", ""),
-        "html": html,
+        "html": html_content,
         "sections": sections,
         "warnings": messages,
     }

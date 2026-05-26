@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Typography,
-  Tree,
   Select,
   Spin,
   Card,
@@ -13,21 +12,13 @@ import {
   message,
 } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
-import type { DataNode } from "antd/es/tree";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { ProjectFileItem } from "@/lib/types/project_file";
+import ChapterTree from "@/components/ChapterTree";
+import type { SectionItem } from "@/components/ChapterTree";
 
 const { Title, Text } = Typography;
-
-interface SectionItem {
-  id: string;
-  section_id: string;
-  title: string;
-  level: number;
-  section_path: string;
-  parent_section_id: string | null;
-}
 
 interface PreviewData {
   document_id: string;
@@ -35,42 +26,6 @@ interface PreviewData {
   html: string;
   sections: SectionItem[];
   warnings: string[];
-}
-
-function buildSectionTree(sections: SectionItem[]): DataNode[] {
-  const map = new Map<string, DataNode>();
-  const roots: DataNode[] = [];
-
-  for (const s of sections) {
-    map.set(s.section_id, {
-      key: s.section_id,
-      title: s.title,
-      children: [],
-    });
-  }
-
-  for (const s of sections) {
-    const node = map.get(s.section_id)!;
-    if (s.parent_section_id && map.has(s.parent_section_id)) {
-      map.get(s.parent_section_id)!.children!.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-
-  // 清理空的 children 数组
-  const cleanChildren = (nodes: DataNode[]) => {
-    for (const node of nodes) {
-      if (node.children && node.children.length === 0) {
-        delete node.children;
-      } else if (node.children) {
-        cleanChildren(node.children);
-      }
-    }
-  };
-  cleanChildren(roots);
-
-  return roots;
 }
 
 export default function PreviewPage() {
@@ -82,6 +37,8 @@ export default function PreviewPage() {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,6 +75,7 @@ export default function PreviewPage() {
     const loadPreview = async () => {
       setPreviewLoading(true);
       setPreviewData(null);
+      setSelectedSectionId(null);
       try {
         const data = await api.get<PreviewData>(
           `/api/documents/${selectedDocId}/preview`
@@ -135,10 +93,13 @@ export default function PreviewPage() {
     };
   }, [selectedDocId]);
 
-  const treeData = useMemo(
-    () => (previewData?.sections ? buildSectionTree(previewData.sections) : []),
-    [previewData]
-  );
+  const handleSectionSelect = useCallback((sectionId: string) => {
+    setSelectedSectionId(sectionId);
+    const anchor = document.getElementById(`sec-${sectionId}`);
+    if (anchor && previewContainerRef.current) {
+      anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
 
   if (pageLoading) {
     return (
@@ -210,27 +171,17 @@ export default function PreviewPage() {
             style={{
               width: 280,
               flexShrink: 0,
-              overflow: "auto",
+              display: "flex",
+              flexDirection: "column",
             }}
-            styles={{ body: { padding: "8px 12px" } }}
+            styles={{ body: { flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" } }}
           >
-            {previewLoading ? (
-              <div style={{ textAlign: "center", padding: 40 }}>
-                <Spin />
-              </div>
-            ) : treeData.length === 0 ? (
-              <Empty
-                description="暂无章节数据"
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              />
-            ) : (
-              <Tree
-                treeData={treeData}
-                defaultExpandAll
-                showLine={{ showLeafIcon: false }}
-                style={{ maxHeight: "100%" }}
-              />
-            )}
+            <ChapterTree
+              sections={previewData?.sections ?? []}
+              selectedSectionId={selectedSectionId}
+              onSelect={handleSectionSelect}
+              loading={previewLoading}
+            />
           </Card>
 
           {/* 右侧 HTML 预览 */}
@@ -261,6 +212,7 @@ export default function PreviewPage() {
               </div>
             ) : previewData ? (
               <div
+                ref={previewContainerRef}
                 className="mammoth-preview"
                 dangerouslySetInnerHTML={{ __html: previewData.html }}
                 style={{ maxWidth: 900, margin: "0 auto" }}
