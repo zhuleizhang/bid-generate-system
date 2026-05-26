@@ -804,7 +804,7 @@ export default function ProjectDetailPage() {
         okText="保存"
         cancelText="取消"
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="requirement_type" label="类型">
@@ -875,7 +875,7 @@ export default function ProjectDetailPage() {
         okText="添加"
         cancelText="取消"
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={addForm}

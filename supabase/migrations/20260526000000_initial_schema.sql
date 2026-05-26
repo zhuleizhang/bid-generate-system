@@ -2,7 +2,9 @@
 -- 覆盖 E0/E1/E2 全部 18 张核心表
 
 -- 启用 pgvector 扩展（向量检索）
-CREATE EXTENSION IF NOT EXISTS pgvector;
+-- 注意：如果报 "pgvector is not available" 错误，需先在 Supabase Dashboard 中手动启用：
+--   Database → Extensions → 搜索 pgvector → Enable
+CREATE EXTENSION IF NOT EXISTS vector;
 
 -- 自动更新 updated_at 的触发器函数
 CREATE OR REPLACE FUNCTION trigger_set_updated_at()
