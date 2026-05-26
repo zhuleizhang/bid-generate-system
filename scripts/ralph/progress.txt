@@ -47,7 +47,7 @@ US-016 |   done  | 标书任务拆解服务
 US-017 |   done  | AIRevision 生成引擎
 US-018 |   done  | 响应性检查服务
 US-019 |   done  | DOCX 最终导出服务
-US-020 | pending | 项目列表和创建/编辑页面
+US-020 |   done  | 项目列表和创建/编辑页面
 US-021 | pending | 文件上传组件（拖拽上传 + 进度展示）
 US-022 | pending | 招标解析结果展示与人工编辑
 US-023 | pending | 任务看板页面
@@ -423,4 +423,23 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 后续 US-031（DOCX 导出流程 UI）直接调用 POST /api/projects/{id}/export 端点
 ---
 
-
+## 2026-05-26 — US-020
+- 创建了 `frontend/src/lib/types/project.ts`：Project、ProjectCreate、ProjectUpdate、ProjectListResponse 类型定义
+- 创建了 `frontend/src/components/ProjectForm.tsx`：共享表单组件，支持新建/编辑两种模式
+- 创建了 `frontend/src/app/projects/page.tsx`：项目列表页
+  - Ant Design Table 展示项目名称、招标单位、截止时间、状态、进度
+  - 状态筛选（全部/进行中/已完成/已归档）+ 项目名称搜索
+  - 服务端分页 + 编辑按钮跳转
+- 创建了 `frontend/src/app/projects/new/page.tsx`：新建项目页
+- 创建了 `frontend/src/app/projects/[id]/edit/page.tsx`：编辑项目页（加载现有数据回填表单）
+- 后端 API 路径格式：`/api/projects`（main.py mount router at `/api`）
+- npx tsc --noEmit + npx eslint 均通过
+- **供后续迭代参考的经验：**
+  - 前端 API 调用后端路径为 `/api/projects`（NEXT_PUBLIC_API_URL 默认 http://localhost:8000，后端 main.py 将 router mount 在 `/api` 前缀下）
+  - 所有使用 Ant Design 组件、useState、useEffect 的页面必须标记 `'use client'`
+  - dayjs 作为 antd 的传递依赖已安装在 node_modules 中，可直接 import 使用，无需添加到 package.json
+  - edit 页路由参数为 `[id]`，通过 `useParams<{ id: string }>()` 获取，URL 格式为 `/projects/{id}/edit`
+  - 后续 US-021（文件上传组件）将在项目详情页 `/projects/{id}` 中添加上传区域
+  - 后续 US-023（任务看板）将在 `/projects/{id}/tasks` 中添加看板视图
+  - 后续 US-022/030/031 的前端页面均复用本故事建立的 API 调用模式和类型系统
+---

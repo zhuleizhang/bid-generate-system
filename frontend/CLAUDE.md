@@ -28,7 +28,20 @@ src/
 - TypeScript: `npx tsc --noEmit`
 - Lint: `npx eslint`
 
+## 路由约定
+
+- 列表页：`/prefix` → `src/app/prefix/page.tsx`（如 `/projects` → `src/app/projects/page.tsx`）
+- 新建页：`/prefix/new` → `src/app/prefix/new/page.tsx`
+- 编辑页：`/prefix/[id]/edit` → `src/app/prefix/[id]/edit/page.tsx`，路由参数通过 `useParams<{ id: string }>()` 获取
+- CRUD 表单编辑/新建共用 `ProjectForm` 组件，通过 `project` prop 区分模式（有值为编辑，无值为新建）
+
+## 类型定义
+
+- 共享 TypeScript 类型放在 `src/lib/types/` 目录（如 `project.ts`）
+- 后端 API 响应类型与 Pydantic model 字段一一对应（camelCase ↔ snake_case 通过 JSON key 自动映射）
+
 ## 注意事项
 
 - 需要 Node >= 20.9.0，使用 `nvm use v20.19.5` 切换
 - .env.example 的例外规则已加到 .gitignore，可直接提交
+- dayjs 作为 antd 传递依赖已可用，可直接 `import dayjs from "dayjs"`，无需添加到 package.json
