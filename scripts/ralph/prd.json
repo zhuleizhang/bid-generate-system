@@ -397,8 +397,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Kanban+列表双视图，HTML5 原生拖拽，Segmented 切换，详情 Modal 展示关联要求"
     },
     {
       "id": "US-024",
