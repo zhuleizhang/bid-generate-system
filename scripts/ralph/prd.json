@@ -119,8 +119,8 @@
         "Typecheck 通过"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "节点类型使用 'cell'（DB CHECK 约束支持的值），非 'table_cell'"
     },
     {
       "id": "US-008",

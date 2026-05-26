@@ -20,10 +20,12 @@
 - DOCX 解析使用 lxml + WordprocessingML 命名空间（http://schemas.openxmlformats.org/wordprocessingml/2006/main），所有标签查询需带命名空间前缀
 - 文档结构树的父子关系使用 _temp_id/_temp_parent_id 临时 ID 机制：解析时分配临时 ID，数据库插入后通过 order_index 排序对齐，再映射回填真实 parent_node_id
 - Supabase Storage 公开 URL 格式为 {SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}，通过公开 URL 下载需用 httpx 而非 Storage API
+- 表格解析采用两遍扫描法：第一遍收集所有单元格信息并构建网格，处理合并关系；第二遍才创建节点（跳过 vMerge continue 单元格）
+- DOCX vMerge 的 val 属性可能缺失（部分工具生成），需根据同列上方是否已有 restart 来推断当前单元格是否为 continue
 
 ================================================================================
 CURRENT: US-007 — 识别表格结构与合并单元格
-STATUS:   pending
+STATUS:   done
 ================================================================================
 
 US-001 |   done  | 初始化 FastAPI 后端项目结构
@@ -32,7 +34,7 @@ US-003 |   done  | 创建完整数据库 Schema（所有表）
 US-004 |   done  | DOCX 上传、解包与存储 API
 US-005 |   done  | 构建 DOCX 文档结构树
 US-006 |   done  | 识别章节与标题层级
-US-007 | pending | 识别表格结构与合并单元格
+US-007 |   done  | 识别表格结构与合并单元格
 US-008 | pending | 生成 TemplateSlot 可填充位置
 US-009 | pending | LLM 辅助判断章节和表格语义类型
 US-010 | pending | 生成未完成项（UnfinishedItem）
@@ -160,5 +162,22 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - section_path 由父路径 + 当前标题拼接而成（如 "技术标/实施方案/进度计划"）
   - section_id 使用 UUID，既写入 section_contents 表也回写到 document_nodes.section_id 字段
   - 后续 US-007（表格合并单元格）、US-008（TemplateSlot）、US-024/025（章节树 UI）均依赖本节生成的章节结构
+---
+
+## 2026-05-26 17:30 — US-007
+- 重写了 `app/services/docx_parser.py` 中的表格解析逻辑，采用两遍扫描法
+- 第一遍：提取所有单元格信息（gridSpan/vMerge/文本），构建网格矩阵和合并映射
+- 第二遍：创建节点，跳过 vMerge continue 单元格，嵌套表格仅记录警告不展开
+- 新增辅助函数：`_parse_cell_info`（无节点创建地提取单元格信息）、`_build_table_grid`（构建网格+合并映射）、`_detect_table_header_rows`（首行加粗检测）、`_detect_nested_tables`（嵌套表格检测）
+- `_NodeBuilder` 新增 `table_count` 计数器，追踪表格序号
+- 表格节点 style_json 包含完整 table_position：table_index、row_count、col_count、header_rows、merge_map（{row,col: {row_span, col_span}}）、nested_table_warnings
+- vMerge 边界情况处理：当 `<w:vMerge/>` 无 val 属性且同列无 restart 时，自动提升为 restart
+- 原 `_process_table_row` 和 `_process_table_cell` 逻辑已内联到新的 `_process_table` 中
+- **供后续迭代参考的经验：**
+  - 表格解析时必须先构建网格再创建节点，否则无法正确处理 vMerge continue 单元格
+  - vMerge 的 val 属性在部分工具生成的 DOCX 中可能缺失，需根据同列上方是否存在 restart 来推断
+  - merge_map 使用字符串键 "row,col" 存储（JSON 序列化要求），后续消费方需解析回整数坐标
+  - 表格单元格的递归内容处理需区分：正常单元格走 `_process_body_children`，含嵌套表格的单元格走手动遍历（跳过 tbl 子元素）
+  - 后续 US-008（TemplateSlot）需读取表格节点的 merge_map 来判断单元格是否合并
 ---
 

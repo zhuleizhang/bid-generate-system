@@ -182,12 +182,177 @@ def _make_location_path(element: etree._Element, root: etree._Element) -> str:
     return "/" + "/".join(parts)
 
 
+# ── 表格解析辅助函数 ──────────────────────────────────────────
+
+
+def _parse_cell_info(tc: etree._Element) -> dict[str, Any]:
+    """提取单个 w:tc 单元格的元信息（不创建节点）。"""
+    tcPr = tc.find(f"{_ns('tcPr')}")
+    grid_span = 1
+    vmerge = "none"
+    if tcPr is not None:
+        gridSpan = tcPr.find(f"{_ns('gridSpan')}")
+        if gridSpan is not None:
+            val = gridSpan.get(f"{_ns('val')}")
+            if val:
+                grid_span = int(val)
+
+        vMerge = tcPr.find(f"{_ns('vMerge')}")
+        if vMerge is not None:
+            val = vMerge.get(f"{_ns('val')}")
+            if val == "restart":
+                vmerge = "restart"
+            else:
+                vmerge = "continue"
+
+    # 提取单元格内所有段落文本
+    cell_text_parts: list[str] = []
+    for p in tc.findall(f"{_ns('p')}"):
+        cell_text_parts.append(_extract_text(p))
+    cell_text = "\n".join(filter(None, cell_text_parts)) or None
+
+    return {
+        "tc_element": tc,
+        "text": cell_text,
+        "grid_span": grid_span,
+        "v_merge": vmerge,
+        "row_index": 0,  # 占位，由 _build_table_grid 填入
+        "col_index": 0,  # 占位
+        "_skip": False,  # vMerge continue 时设为 True，不创建节点
+    }
+
+
+def _build_table_grid(all_rows: list[list[dict[str, Any]]]) -> tuple[int, dict[tuple[int, int], dict[str, int]]]:
+    """构建表格网格矩阵，计算合并单元格映射。
+
+    处理 gridSpan（水平合并）和 vMerge（垂直合并），将 vMerge continue
+    单元格标记为 _skip=True，并将行列跨度记录到 merge_map 中。
+
+    Returns:
+        (max_cols, merge_map):
+          max_cols — 表格最大列数
+          merge_map — {(row, col): {"row_span": R, "col_span": C}, ...}
+    """
+    if not all_rows:
+        return 0, {}
+
+    # 计算最大列数
+    max_cols = 0
+    for row_cells in all_rows:
+        total = sum(c["grid_span"] for c in row_cells)
+        max_cols = max(max_cols, total)
+
+    grid: dict[tuple[int, int], dict[str, Any]] = {}  # (ri, ci) → cell_info
+    merge_map: dict[tuple[int, int], dict[str, int]] = {}
+
+    # 跟踪各列的 vMerge 状态：列索引 → 是否正处于合并中
+    col_vmerge_restart: dict[int, tuple[int, int]] = {}  # col → (restart_row, restart_col)
+
+    for ri, row_cells in enumerate(all_rows):
+        col = 0
+        for cell_info in row_cells:
+            # 跳过已被上方网格占用的位置
+            while (ri, col) in grid:
+                col += 1
+
+            grid_span = cell_info["grid_span"]
+            vmerge = cell_info["v_merge"]
+
+            if vmerge == "continue":
+                # 检查同列上方是否有 restart：若没有，则将当前单元格视为 restart
+                merge_src = col_vmerge_restart.get(col)
+                if merge_src is None:
+                    # 当前列无 restart，将此 continue 提升为 restart
+                    vmerge = "restart"
+                    cell_info["v_merge"] = "restart"
+                else:
+                    src_key = merge_src
+                    if src_key in merge_map:
+                        merge_map[src_key]["row_span"] += 1
+                    else:
+                        merge_map[src_key] = {
+                            "row_span": 2,
+                            "col_span": grid_span,
+                        }
+
+                    cell_info["_skip"] = True
+                    cell_info["row_index"] = ri
+                    cell_info["col_index"] = col
+
+                    for dc in range(grid_span):
+                        grid[(ri, col + dc)] = cell_info
+                    col += grid_span
+                    continue
+
+            # 正常单元格或 vMerge restart
+            cell_info["row_index"] = ri
+            cell_info["col_index"] = col
+
+            # 标记网格占用
+            for dc in range(grid_span):
+                grid[(ri, col + dc)] = cell_info
+
+            if vmerge == "restart":
+                col_vmerge_restart[col] = (ri, col)
+                for dc in range(1, grid_span):
+                    col_vmerge_restart[col + dc] = (ri, col + dc)
+
+            if grid_span > 1:
+                merge_map[(ri, col)] = {"row_span": 1, "col_span": grid_span}
+
+            col += grid_span
+
+    return max_cols, merge_map
+
+
+def _detect_table_header_rows(all_rows: list[list[dict[str, Any]]]) -> list[int]:
+    """检测表头行：首行中有单元格内文本加粗则标记为表头。"""
+    if not all_rows:
+        return []
+
+    first_row = all_rows[0]
+    for cell_info in first_row:
+        tc = cell_info["tc_element"]
+        # 检查第一个段落的 run 属性是否加粗
+        first_p = tc.find(f"{_ns('p')}")
+        if first_p is not None:
+            first_rPr = first_p.find(f"{_ns('r')}/{_ns('rPr')}")
+            if first_rPr is not None:
+                b = first_rPr.find(f"{_ns('b')}")
+                if b is not None:
+                    val = b.get(f"{_ns('val')}")
+                    if val != "0" and val != "false":
+                        return [0]
+
+    return []
+
+
+def _detect_nested_tables(tbl_el: etree._Element) -> list[str]:
+    """检测表格内是否包含嵌套表格，返回警告信息列表。"""
+    warnings: list[str] = []
+    for tc in tbl_el.findall(f".//{_ns('tc')}"):
+        nested_tbls = tc.findall(f"{_ns('tbl')}")
+        if nested_tbls:
+            warnings.append("检测到嵌套表格（位于单元格内），已跳过展开解析")
+            break  # 不重复报告同一表格中的多次嵌套
+    return warnings
+
+
+def _cell_has_nested_table(tc: etree._Element) -> bool:
+    """判断单元格内是否包含嵌套表格。"""
+    return len(tc.findall(f"{_ns('tbl')}")) > 0
+
+
+# ── 节点构建器 ──────────────────────────────────────────────
+
+
 class _NodeBuilder:
     """构建节点列表并管理临时 ID 映射的辅助类。"""
 
     def __init__(self) -> None:
         self.nodes: list[dict[str, Any]] = []
         self._counter = 0
+        self.table_count = 0
 
     def next_temp_id(self) -> int:
         self._counter += 1
@@ -220,6 +385,9 @@ class _NodeBuilder:
 
     def build(self) -> list[dict[str, Any]]:
         return self.nodes
+
+
+# ── 主体解析 ────────────────────────────────────────────────
 
 
 def _process_body_children(
@@ -268,97 +436,89 @@ def _process_table(
     builder: _NodeBuilder,
     parent_temp_id: int | None,
 ) -> None:
-    """处理 w:tbl 表格元素，递归处理行和单元格。"""
+    """处理 w:tbl 表格元素。
+
+    采用两遍扫描：
+    1. 第一遍：提取所有单元格信息，构建网格矩阵，处理合并关系
+    2. 第二遍：创建节点（跳过 vMerge continue 单元格），嵌套表格仅记录警告
+    """
+    builder.table_count += 1
     table_location = _make_location_path(tbl_el, doc_root)
+
+    rows = tbl_el.findall(f"{_ns('tr')}")
+
+    # 第一遍：解析所有单元格信息
+    all_rows: list[list[dict[str, Any]]] = []
+    for tr in rows:
+        row_cells: list[dict[str, Any]] = []
+        for tc in tr.findall(f"{_ns('tc')}"):
+            row_cells.append(_parse_cell_info(tc))
+        all_rows.append(row_cells)
+
+    # 构建网格矩阵和合并映射
+    max_cols, merge_map = _build_table_grid(all_rows)
+
+    # 检测表头行和嵌套表格
+    header_rows = _detect_table_header_rows(all_rows)
+    nested_warnings = _detect_nested_tables(tbl_el)
+
+    # 创建表格节点（含 position 元数据）
     table_tid = builder.add_node(
         node_type="table",
         text=None,
         location_path=table_location,
-        style_json={},
+        style_json={
+            "table_index": builder.table_count,
+            "row_count": len(rows),
+            "col_count": max_cols,
+            "header_rows": header_rows,
+            "merge_map": {
+                f"{r},{c}": merge_map[(r, c)] for r, c in merge_map
+            },
+            "nested_table_warnings": nested_warnings,
+        },
         temp_parent_id=parent_temp_id,
     )
 
-    rows = tbl_el.findall(f"{_ns('tr')}")
-    for ri, tr in enumerate(rows):
-        _process_table_row(tr, doc_root, style_map, builder, ri, table_tid)
-
-
-def _process_table_row(
-    tr: etree._Element,
-    doc_root: etree._Element,
-    style_map: dict[str, dict[str, Any]],
-    builder: _NodeBuilder,
-    row_index: int,
-    parent_temp_id: int,
-) -> None:
-    """处理单个 w:tr 表格行元素。"""
-    row_location = _make_location_path(tr, doc_root)
-    row_tid = builder.add_node(
-        node_type="row",
-        text=None,
-        location_path=row_location,
-        style_json={},
-        temp_parent_id=parent_temp_id,
-        row_index=row_index,
-    )
-
-    cells = tr.findall(f"{_ns('tc')}")
-    col_cursor = 0
-    for tc in cells:
-        col_span = _process_table_cell(
-            tc, doc_root, style_map, builder, row_index, col_cursor, row_tid,
+    # 第二遍：创建行和单元格节点
+    for tr, row_cells in zip(rows, all_rows):
+        row_location = _make_location_path(tr, doc_root)
+        row_tid = builder.add_node(
+            node_type="row",
+            text=None,
+            location_path=row_location,
+            style_json={},
+            temp_parent_id=table_tid,
         )
-        col_cursor += col_span
 
+        for cell_info in row_cells:
+            # vMerge continue 单元格不创建独立节点
+            if cell_info["_skip"]:
+                continue
 
-def _process_table_cell(
-    tc: etree._Element,
-    doc_root: etree._Element,
-    style_map: dict[str, dict[str, Any]],
-    builder: _NodeBuilder,
-    row_index: int,
-    col_index: int,
-    parent_temp_id: int,
-) -> int:
-    """处理单个 w:tc 单元格，递归处理内部内容。返回 gridSpan 值。"""
-    cell_location = _make_location_path(tc, doc_root)
+            cell_tid = builder.add_node(
+                node_type="cell",
+                text=cell_info["text"],
+                location_path=_make_location_path(cell_info["tc_element"], doc_root),
+                style_json={
+                    "grid_span": cell_info["grid_span"],
+                    "v_merge": cell_info["v_merge"],
+                },
+                temp_parent_id=row_tid,
+                row_index=cell_info["row_index"],
+                col_index=cell_info["col_index"],
+            )
 
-    # 检测水平合并 (gridSpan) 和垂直合并 (vMerge)
-    tcPr = tc.find(f"{_ns('tcPr')}")
-    grid_span = 1
-    vmerge = "none"
-    if tcPr is not None:
-        gridSpan = tcPr.find(f"{_ns('gridSpan')}")
-        if gridSpan is not None:
-            val = gridSpan.get(f"{_ns('val')}")
-            if val:
-                grid_span = int(val)
-
-        vMerge = tcPr.find(f"{_ns('vMerge')}")
-        if vMerge is not None:
-            val = vMerge.get(f"{_ns('val')}") or "continue"
-            vmerge = val
-
-    # 提取单元格文本
-    cell_text_parts: list[str] = []
-    for p in tc.findall(f"{_ns('p')}"):
-        cell_text_parts.append(_extract_text(p))
-    cell_text = "\n".join(filter(None, cell_text_parts)) or None
-
-    cell_tid = builder.add_node(
-        node_type="cell",
-        text=cell_text,
-        location_path=cell_location,
-        style_json={"grid_span": grid_span, "v_merge": vmerge},
-        temp_parent_id=parent_temp_id,
-        row_index=row_index,
-        col_index=col_index,
-    )
-
-    # 递归处理单元格内的段落、嵌套表格、sdt
-    _process_body_children(tc, doc_root, style_map, builder, cell_tid)
-
-    return grid_span
+            # 检测嵌套表格：单元格内含嵌套表格时只处理段落，跳过嵌套表格本身
+            if _cell_has_nested_table(cell_info["tc_element"]):
+                for child in cell_info["tc_element"]:
+                    tag = etree.QName(child).localname
+                    if tag == "p":
+                        _process_paragraph(child, doc_root, style_map, builder, cell_tid)
+                    elif tag == "sdt":
+                        _process_sdt(child, doc_root, style_map, builder, cell_tid)
+            else:
+                _process_body_children(cell_info["tc_element"], doc_root, style_map, builder, cell_tid)
 
 
 def _process_sdt(
