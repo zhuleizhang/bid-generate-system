@@ -49,7 +49,7 @@ US-018 |   done  | 响应性检查服务
 US-019 |   done  | DOCX 最终导出服务
 US-020 |   done  | 项目列表和创建/编辑页面
 US-021 |   done  | 文件上传组件（拖拽上传 + 进度展示）
-US-022 | pending | 招标解析结果展示与人工编辑
+US-022 |   done  | 招标解析结果展示与人工编辑
 US-023 | pending | 任务看板页面
 US-024 | pending | DOCX 转 HTML 预览（mammoth 集成）
 US-025 | pending | 章节树导航组件
@@ -467,3 +467,33 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 后续 US-022（招标解析结果展示）将在项目详情页增加 Tab 切换
   - 后续 US-023（任务看板）将在 `/projects/{id}/tasks` 中添加看板视图
 ---
+
+## 2026-05-26 — US-022
+- 创建了 `backend/app/models/requirement.py`：新增 RequirementCreate、RequirementUpdate、RequirementDBItem Pydantic 模型
+- 创建了 `backend/app/api/requirements.py`：需求 CRUD API
+  - GET /api/projects/{project_id}/requirements — 查询项目所有要求列表
+  - POST /api/projects/{project_id}/requirements — 手动添加一条要求（status = 'manual'）
+  - PUT /api/projects/{project_id}/requirements/{requirement_id} — 编辑已提取的要求
+  - PATCH /api/projects/{project_id}/requirements/{requirement_id}/status — 软删除（标记为 ignored）
+- 在 `backend/app/gateway/supabase_gateway.py` 中新增 update_requirement 方法
+- 在 `backend/app/api/router.py` 中注册 requirements_router
+- 创建了 `frontend/src/lib/types/requirement.ts`：RequirementDBItem/RequirementCreate/RequirementUpdate 类型，含 8 种类型标签、优先级/风险等级颜色等常量映射
+- 更新了 `frontend/src/app/projects/[id]/page.tsx`：项目详情页重构为 Tabs 布局
+  - "文件管理"Tab：原有文件上传和列表功能
+  - "招标要求"Tab：Collapse 按类型分组展示要求列表
+  - 每条要求显示：标题、优先级标签、强制标记（红色）、风险等级标签、描述（可展开）、原文摘录（Tooltip）
+  - 编辑功能：点击编辑图标弹出 Modal，修改任意字段后自动保存
+  - 添加功能："+ 添加要求"按钮，弹出表单选择类型/填写标题等
+  - 删除功能：Popconfirm 确认后软删除（status → ignored）
+  - 刷新按钮手动重新加载列表
+- 初始数据加载合并到单个 useEffect 中，避免 react-hooks/set-state-in-effect 警告
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - 软删除使用 status = 'ignored' 而非物理删除，保留数据可追溯，重新解析时会覆盖
+  - 手动添加的要求标记 status = 'manual'，与 LLM 提取的 'active' 区分
+  - Ant Design Collapse 按 requirement_type 分组，defaultActiveKey 设为所有有数据的类型确保默认展开
+  - 项目详情页的 requirements API 不需要单独传 FormData，使用标准 api.put/api.post 即可
+  - 后续 US-023（任务看板）和 US-030（响应性检查结果页）均需读取 requirements 数据
+---
+
+
