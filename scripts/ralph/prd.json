@@ -1,7 +1,7 @@
 {
-  "project": "智能标书专员系统",
+  "project": "智能标书系统",
   "branchName": "ralph/bid-generate-system",
-  "description": "面向企业投标场景的智能标书专员系统，核心卖点是开源 DOCX 任意模板理解引擎——自动理解用户上传的任意 Word 投标模板，识别章节、表格、可填充位置，并在正确位置生成 AI 修订内容。",
+  "description": "面向企业投标场景的智能标书系统，核心卖点是开源 DOCX 任意模板理解引擎——自动理解用户上传的任意 Word 投标模板，识别章节、表格、可填充位置，并在正确位置生成 AI 修订内容。",
   "userStories": [
     {
       "id": "US-001",
