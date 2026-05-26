@@ -22,7 +22,7 @@
 - Supabase Storage 公开 URL 格式为 {SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}，通过公开 URL 下载需用 httpx 而非 Storage API
 
 ================================================================================
-CURRENT: US-006 — 识别章节与标题层级
+CURRENT: US-007 — 识别表格结构与合并单元格
 STATUS:   pending
 ================================================================================
 
@@ -31,7 +31,7 @@ US-002 |   done  | 初始化 Next.js 前端项目结构
 US-003 |   done  | 创建完整数据库 Schema（所有表）
 US-004 |   done  | DOCX 上传、解包与存储 API
 US-005 |   done  | 构建 DOCX 文档结构树
-US-006 | pending | 识别章节与标题层级
+US-006 |   done  | 识别章节与标题层级
 US-007 | pending | 识别表格结构与合并单元格
 US-008 | pending | 生成 TemplateSlot 可填充位置
 US-009 | pending | LLM 辅助判断章节和表格语义类型
@@ -145,3 +145,20 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 页眉/页脚 XML 结构是自包含的，需从自身根元素（通常是 w:hdr/w:ftr）开始构建 location_path
   - 后续 US-006（章节识别）和 US-007（表格合并单元格）直接依赖本故事生成的 document_nodes
 ---
+
+## 2026-05-26 16:30 — US-006
+- 创建了章节检测引擎 `app/services/section_detector.py`：标准 Heading1-6 样式识别 + 非标准标题推断
+- 非标准标题推断策略：字号 ≥14pt 且加粗 → 标题候选，编号模式（一、/1./1.1/第一章/（一））→ 层级推断
+- 创建了章节模型 `app/models/section.py`：SectionNode（章节树节点，支持嵌套子章节）、SectionDetectionResult
+- 新增 API 端点：POST /api/documents/{id}/detect-sections（触发检测）、GET /api/documents/{id}/sections（查询结果）
+- 章节检测结果写入 section_contents 表，各节点的 section_id 回写到 document_nodes 表
+- SupabaseGateway 新增：update_node_section、delete_section_contents、insert_section_contents、get_section_contents
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - section_detector 通过 `_build_section_tree` 按 order_index 遍历全部节点，标题节点创建 SectionNode，内容节点归属于最近的标题节点
+  - 章节层级关系通过栈结构管理：遇到新标题时弹出层级 >= 当前层级的栈顶节点，确保嵌套关系正确
+  - section_path 由父路径 + 当前标题拼接而成（如 "技术标/实施方案/进度计划"）
+  - section_id 使用 UUID，既写入 section_contents 表也回写到 document_nodes.section_id 字段
+  - 后续 US-007（表格合并单元格）、US-008（TemplateSlot）、US-024/025（章节树 UI）均依赖本节生成的章节结构
+---
+
