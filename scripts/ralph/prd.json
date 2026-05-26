@@ -307,8 +307,8 @@
         "Typecheck 通过"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "POST/GET /api/projects/{id}/review 端点，基于 AIRevision.source_requirement_ids 建立映射，按 accepted/pending 状态判定 PASS/FAIL/WARNING"
     },
     {
       "id": "US-019",

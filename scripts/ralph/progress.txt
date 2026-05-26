@@ -24,7 +24,7 @@
 - DOCX vMerge 的 val 属性可能缺失（部分工具生成），需根据同列上方是否已有 restart 来推断当前单元格是否为 continue
 
 ================================================================================
-CURRENT: US-014 — 招标文件解析引擎（PDF + Word）
+CURRENT: US-018 — 响应性检查服务
 STATUS:   done
 ================================================================================
 
@@ -44,8 +44,8 @@ US-013 |   done  | 文件上传 API（招标文件、公司资料）
 US-014 |   done  | 招标文件解析引擎（PDF + Word）
 US-015 |   done  | 招标要求提取与结构化
 US-016 |   done  | 标书任务拆解服务
-US-017 | pending | AIRevision 生成引擎
-US-018 | pending | 响应性检查服务
+US-017 |   done  | AIRevision 生成引擎
+US-018 |   done  | 响应性检查服务
 US-019 | pending | DOCX 最终导出服务
 US-020 | pending | 项目列表和创建/编辑页面
 US-021 | pending | 文件上传组件（拖拽上传 + 进度展示）
@@ -377,3 +377,25 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 后续 US-019（DOCX 导出）需要根据 ai_revisions.status 过滤已接受的修订进行合成
   - 后续 US-026/027/028（前端预览和操作）直接依赖本接口生成的 ai_revisions 数据
 ---
+
+## 2026-05-26 — US-018
+- 创建了 `app/models/review_result.py`：ReviewCheckItem 和 ReviewCheckResult Pydantic 模型
+- 创建了 `app/services/review_service.py`：响应性检查引擎
+  - 获取项目下所有 Requirements 和所有文档的 AIRevision
+  - 通过 AIRevision.source_requirement_ids (JSONB) 建立 requirement_id → revision 映射
+  - 检查逻辑：accepted/edited_then_accepted → PASS，pending/need_human_confirm → WARNING，无覆盖 → FAIL
+  - is_mandatory 要求无已接受覆盖时强制标记 FAIL
+  - 废标项（risk_level=blocking）FAIL 时标记 has_blocking_issues
+  - 输出覆盖率、PASS/FAIL/WARNING 计数和逐项结果
+- 创建了 `app/api/review.py`：POST + GET /api/projects/{project_id}/review 端点
+- 在 `app/gateway/supabase_gateway.py` 中新增 get_documents_by_project 方法
+- 在 `app/api/router.py` 中注册 review_router
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - AIRevision.source_requirement_ids 存储为 JSONB 数组（UUID 列表），是 requirement → revision 映射的关键桥梁
+  - 响应性检查不写入数据库表，结果直接返回给前端（实时计算），与 PRD 中的 review_results 表不同
+  - get_documents_by_project 查询项目下所有文档，再逐个获取其 AIRevision，适合文档数较少的场景
+  - 后续 US-019（DOCX 导出）可在导出前调用本接口检查 blocking 问题
+  - 后续 US-030（响应性检查结果页）需读取本接口的数据在前端展示响应矩阵
+---
+
