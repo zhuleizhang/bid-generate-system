@@ -413,7 +413,7 @@
         "Typecheck 通过"
       ],
       "priority": 24,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

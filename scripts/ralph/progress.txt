@@ -51,7 +51,7 @@ US-020 |   done  | 项目列表和创建/编辑页面
 US-021 |   done  | 文件上传组件（拖拽上传 + 进度展示）
 US-022 |   done  | 招标解析结果展示与人工编辑
 US-023 |   done  | 任务看板页面
-US-024 | pending | DOCX 转 HTML 预览（mammoth 集成）
+US-024 |   done  | DOCX 转 HTML 预览（mammoth 集成）
 US-025 | pending | 章节树导航组件
 US-026 | pending | HTML 预览中的 AIRevision 高亮展示
 US-027 | pending | AIRevision 侧边栏 — 列表与单条操作
@@ -517,6 +517,33 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - HTML5 拖拽只需 draggable、onDragStart、onDragOver(preventDefault)、onDrop 四个 API，无需额外依赖包
   - 后续 US-024（DOCX 转 HTML 预览）和 US-025（章节树导航）是独立的新页面
   - 后续 US-026/027/028（AIRevision 预览高亮、侧边栏、批量操作）依赖 US-024/025 的预览基础设施
+---
+
+## 2026-05-26 — US-024
+- 在 `backend/requirements.txt` 中添加了 `mammoth>=1.12.0` Python 包
+- 在 `backend/app/api/documents.py` 中新增 `GET /api/documents/{doc_id}/preview` 端点：
+  - 从 Supabase Storage 下载原始 DOCX
+  - 使用 mammoth 将 DOCX 转换为 HTML（保留标题层级、加粗、列表和表格）
+  - 同时返回文档的章节结构数据（sections）
+  - 仅支持 DOCX 文件类型，非 DOCX 返回 400 错误
+  - mammoth 转换警告通过 warnings 字段返回
+- 创建了前端预览页 `frontend/src/app/projects/[id]/preview/page.tsx`：
+  - 顶部文档选择器（下拉选择项目中的投标模板）
+  - 左侧章节树：从平铺的 section_contents 数据构建 Ant Design Tree，支持全部展开和图标连接线
+  - 右侧 HTML 预览：通过 dangerouslySetInnerHTML 渲染 mammoth 生成的 HTML，内容区自适应撑满高度并支持滚动
+  - 自动选中第一个投标模板文档，切换文档时自动重新加载预览
+  - 页面加载态、空态、错误态均有处理
+  - 返回按钮返回项目详情页
+- 更新了 `frontend/src/app/projects/[id]/page.tsx`：在项目详情页顶部添加"文档预览"和"任务看板"导航按钮
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - Python mammoth 包 API：`mammoth.convert_to_html(BytesIO(file_bytes))` 返回 Result 对象，`.value` 为 HTML 字符串，`.messages` 为警告列表
+  - mammoth 转换的 HTML 输出已包含基本的内联样式（粗体、斜体、标题等），前端通过 `dangerouslySetInnerHTML` 直接渲染即可
+  - section_contents 表存储为平铺记录（通过 parent_section_id 关联），前端需自行构建树结构
+  - 前端预览页使用 flex 布局实现全高度自适应：`height: calc(100vh - 64px - 48px)` 减去顶栏和 padding
+  - eslint 规则 `react-hooks/set-state-in-effect` 不允许在 useEffect 中同步调用 setState，需将 setState 放入 async 函数内部
+  - 后续 US-025（章节树导航组件）可直接复用本页面的章节数据和预览区，主要工作是实现树节点点击后的平滑滚动定位和搜索功能
+  - 后续 US-026（AIRevision 高亮）需要在预览 HTML 中注入高亮标记，可在本页面的 HTML 渲染逻辑上扩展
 ---
 
 
