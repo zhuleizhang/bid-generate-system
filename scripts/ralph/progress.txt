@@ -8,14 +8,17 @@
 - 后端项目结构：app/api/ (路由)、app/core/ (配置)、app/models/ (数据模型)、app/services/ (业务逻辑)、app/gateway/ (外部网关)
 - Docker 使用 python:3.12-slim 基础镜像，构建时需安装 gcc/libxml2-dev/libxslt-dev 以编译 lxml
 - .gitignore 已涵盖 Python/Node.js 常见忽略项（venv、__pycache__、node_modules、.env、.mypy_cache）
+- 前端使用 Next.js 16 App Router + Ant Design + @ant-design/nextjs-registry，布局采用 Ant Design Layout 组件（Sider + Header + Content）
+- 前端 typecheck 使用 `npx tsc --noEmit`，lint 使用 `npx eslint`（Next.js 16 中 lint 脚本改为了直接调用 eslint）
+- Node 版本要求 >= 20.9.0（Next.js 16 要求），使用 nvm use v20.19.5 切换
 
 ================================================================================
-CURRENT: US-002 — 初始化 Next.js 前端项目结构
+CURRENT: US-003 — 创建完整数据库 Schema（所有表）
 STATUS:   pending
 ================================================================================
 
 US-001 |   done  | 初始化 FastAPI 后端项目结构
-US-002 | pending | 初始化 Next.js 前端项目结构
+US-002 |   done  | 初始化 Next.js 前端项目结构
 US-003 | pending | 创建完整数据库 Schema（所有表）
 US-004 | pending | DOCX 上传、解包与存储 API
 US-005 | pending | 构建 DOCX 文档结构树
@@ -65,4 +68,20 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 项目根目录 CLAUDE.md 已含注释规范，所有新增代码遵循了中文注释原则
   - venv 已预装所有依赖（fastapi、uvicorn、lxml、python-docx、docx2python、pdfplumber、pypdf、httpx、supabase、mypy），新故事可直接开发
   - typecheck 使用 `mypy app/ --ignore-missing-imports`，因为 supabase 等第三方库可能缺少类型存根
+---
+
+## 2026-05-26 11:50 — US-002
+- 使用 create-next-app 初始化 frontend/ 项目（Next.js 16 + TypeScript strict 模式）
+- 安装依赖：antd, @ant-design/pro-components, @supabase/supabase-js, mammoth, @ant-design/nextjs-registry
+- 创建 MainLayout 组件（Ant Design Layout：Sider 侧边栏 + Header 顶栏 + Content 内容区）
+- 创建 lib/api.ts：封装 fetch 请求、JSON 解析、错误处理（ApiError 类）
+- 创建 lib/supabase.ts：Supabase 客户端初始化
+- 创建 frontend/.env.example：NEXT_PUBLIC_SUPABASE_URL、NEXT_PUBLIC_SUPABASE_ANON_KEY、NEXT_PUBLIC_API_URL
+- 根布局集成 AntdRegistry + ConfigProvider（中文 locale）
+- TypeScript typecheck 通过，ESLint 通过
+- **供后续迭代参考的经验：**
+  - Next.js 16 要求 Node >= 20.9.0，本机需通过 nvm use v20.19.5 切换
+  - Next.js 16 的 lint 脚本是 `eslint` 而非之前的 `next lint`
+  - Ant Design 在 Next.js App Router 中需要 @ant-design/nextjs-registry 包裹，且所有使用 Ant Design 组件的页面/组件需标记 'use client'
+  - frontend/.gitignore 默认忽略 .env*，需添加 !.env.example 例外才能提交
 ---
