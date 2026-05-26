@@ -54,7 +54,7 @@ US-023 |   done  | 任务看板页面
 US-024 |   done  | DOCX 转 HTML 预览（mammoth 集成）
 US-025 |   done  | 章节树导航组件
 US-026 |   done  | HTML 预览中的 AIRevision 高亮展示
-US-027 | pending | AIRevision 侧边栏 — 列表与单条操作
+US-027 |   done  | AIRevision 侧边栏 — 列表与单条操作
 US-028 | pending | AIRevision 批量操作
 US-029 | pending | 未完成项面板与补充资料流程
 US-030 | pending | 响应性检查结果页
@@ -601,4 +601,37 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 高亮 CSS 使用 `data-revision-*` 属性选择器，无需 JS 判断，CSS 即可控制不同状态/类型的颜色
   - 后续 US-027（AIRevision 侧边栏）和 US-028（批量操作）需要复用本故事的 ai_revisions 数据和 AIRevision 类型定义
   - 后续 US-029（未完成项面板）可参考本故事的 HTML 注入 + Popover 交互模式
+---
+
+## 2026-05-26 — US-027
+- 创建了 `backend/app/api/revisions.py`：PATCH /api/revisions/{revision_id}/status 端点
+  - 支持四种状态变更：accepted / rejected / edited_then_accepted / need_human_confirm
+  - edited_then_accepted 时同步更新 ai_content 字段
+  - 每次操作自动写入 audit_logs 表（action = accept_revision / reject_revision / edit_revision）
+- 在 `backend/app/gateway/supabase_gateway.py` 中新增：
+  - `update_ai_revision_status(revision_id, status, **fields)` — 更新修订状态和可选字段
+  - `get_ai_revision(revision_id)` — 按 ID 查询单条修订
+  - `insert_audit_log(data)` — 插入审计日志
+- 在 `backend/app/api/router.py` 中注册 revisions_router
+- 修复了 `frontend/src/lib/types/ai_revision.ts` 中的状态枚举值：
+  - `confirmed` → `accepted`，新增 `edited_then_accepted`，与 DB CHECK 约束对齐
+  - 更新 STATUS_LABELS / STATUS_COLORS 常量映射
+- 创建了 `frontend/src/components/RevisionSidebar.tsx`：AIRevision 侧边栏组件
+  - 按 section_path（从 metadata 读取）分组，Collapse 折叠面板展示
+  - 每条修订显示：类型标签、内容摘要（2行省略）、风险等级、状态、置信度百分比
+  - 四种操作按钮：接受（绿色 CheckOutlined）、拒绝（红色 CloseOutlined + Popconfirm）、编辑（蓝色 EditOutlined → Modal）、标记待确认（橙色 ExclamationCircleOutlined）
+  - 编辑 Modal：上方展示 AI 原始内容（绿色背景区域），下方 TextArea 编辑框
+  - 操作后通过 PATCH /api/revisions/{id}/status 更新，成功后回调 onStatusChange 刷新数据
+- 更新了 `frontend/src/app/projects/[id]/preview/page.tsx`：
+  - 新增 `handleRevisionRefresh` 回调：重新调用预览 API 刷新数据
+  - 在 HTML 预览右侧添加 360px 宽度的 RevisionSidebar（有 AIRevision 时才渲染）
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - AIRevision 的 section_path 存储在 metadata JSONB 字段中（由生成引擎 US-017 写入），前端通过 `rev.metadata.section_path` 读取
+  - 前端 AIRevision 状态枚举必须与 DB CHECK 约束一致：DB 为 `pending, accepted, rejected, edited_then_accepted, need_human_confirm`
+  - audit_logs 表结构：entity_type + entity_id + action + details(JSONB)，无需 project_id 外键
+  - 操作刷新策略使用"重新拉取完整预览数据"而非"局部更新状态"，保证数据一致性
+  - Collapse 的 defaultActiveKey 使用所有分组 key，确保全部默认展开
+  - 后续 US-028（批量操作）可直接复用 RevisionSidebar 组件，在顶部增加批量操作工具栏
+  - 后续 US-029（未完成项面板）可参考本组件的 Card + Collapse 分组 + 操作按钮模式
 ---
