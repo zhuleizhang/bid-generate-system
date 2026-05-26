@@ -204,3 +204,56 @@ class SupabaseGateway:
         result = self.client.table("model_call_logs").insert(data).execute()
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items[0] if items else {}
+
+    # ── Projects ─────────────────────────────────────────────────
+
+    def insert_project(self, data: dict[str, Any]) -> dict[str, Any]:
+        """创建项目记录，返回插入后的项目数据。"""
+        result = self.client.table("projects").insert(data).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else {}
+
+    def get_projects(
+        self, page: int = 1, page_size: int = 20, status: str | None = None, search: str | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
+        """分页查询项目列表，支持按状态筛选和名称搜索，返回 (items, total)。"""
+        query = self.client.table("projects").select("*", count="exact")  # type: ignore[arg-type]
+
+        if status:
+            query = query.eq("status", status)
+        if search:
+            query = query.ilike("name", f"%{search}%")
+
+        offset = (page - 1) * page_size
+        result = query.order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        total = result.count or 0  # type: ignore[union-attr]
+        return items, total
+
+    def get_project(self, project_id: str) -> dict[str, Any] | None:
+        """按 ID 查询单个项目。"""
+        result = self.client.table("projects").select("*").eq("id", project_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else None
+
+    def update_project(self, project_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        """更新项目信息，返回更新后的记录。"""
+        result = self.client.table("projects").update(data).eq("id", project_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else None
+
+    def delete_project(self, project_id: str) -> bool:
+        """删除项目，返回是否成功。"""
+        result = self.client.table("projects").delete().eq("id", project_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return len(items) > 0
+
+    def get_project_document_count(self, project_id: str) -> int:
+        """查询项目下的文件数量。"""
+        result = (
+            self.client.table("documents")
+            .select("*", count="exact")  # type: ignore[arg-type]
+            .eq("project_id", project_id)
+            .execute()
+        )
+        return result.count or 0  # type: ignore[union-attr]
