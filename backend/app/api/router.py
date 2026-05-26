@@ -1,6 +1,9 @@
 from fastapi import APIRouter
 
+from app.api.documents import documents_router
+
 router = APIRouter()
+router.include_router(documents_router)
 
 
 @router.get("/health")
