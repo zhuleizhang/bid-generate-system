@@ -338,6 +338,12 @@ class SupabaseGateway:
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items
 
+    def update_bid_task(self, task_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        """更新单条标书任务（状态/负责人），返回更新后的记录。"""
+        result = self.client.table("bid_tasks").update(data).eq("id", task_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else None
+
     def delete_bid_tasks_by_project(self, project_id: str) -> None:
         """删除指定项目的所有标书任务（用于重新拆解）。"""
         self.client.table("bid_tasks").delete().eq("project_id", project_id).execute()

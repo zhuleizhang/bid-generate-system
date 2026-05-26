@@ -15,6 +15,13 @@ class BidTaskItem(BaseModel):
     section_path: str = ""
 
 
+class BidTaskUpdate(BaseModel):
+    """标书任务更新 — 看板拖拽状态变更和认领操作。"""
+
+    status: str | None = None
+    assignee: str | None = None
+
+
 class TaskDecompositionResult(BaseModel):
     """任务拆解结果。"""
 
