@@ -52,7 +52,7 @@ US-021 |   done  | 文件上传组件（拖拽上传 + 进度展示）
 US-022 |   done  | 招标解析结果展示与人工编辑
 US-023 |   done  | 任务看板页面
 US-024 |   done  | DOCX 转 HTML 预览（mammoth 集成）
-US-025 | pending | 章节树导航组件
+US-025 |   done  | 章节树导航组件
 US-026 | pending | HTML 预览中的 AIRevision 高亮展示
 US-027 | pending | AIRevision 侧边栏 — 列表与单条操作
 US-028 | pending | AIRevision 批量操作
@@ -546,4 +546,27 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 后续 US-026（AIRevision 高亮）需要在预览 HTML 中注入高亮标记，可在本页面的 HTML 渲染逻辑上扩展
 ---
 
-
+## 2026-05-26 — US-025
+- 创建了 `frontend/src/components/ChapterTree.tsx`：可复用的章节树导航组件
+  - 接收 `sections: SectionItem[]` 平铺数据，内部 `buildSectionTree()` 构建 Ant Design Tree 数据
+  - 搜索输入框：按关键词过滤树节点，保留匹配节点的祖先路径，自动展开匹配路径
+  - 展开全部/折叠全部按钮，一键操作
+  - 选中节点高亮（通过 `selectedKeys` / `selectedSectionId` prop 控制）
+  - `onSelect` 回调返回 section_id，供父组件响应
+- 更新了 `backend/app/api/documents.py` 预览端点：
+  - mammoth 转换后使用 `lxml.html` 解析 HTML，匹配章节标题注入 `id="sec-{section_id}"` 锚点
+  - 锚点注入失败不阻塞预览（try/except pass）
+- 更新了 `frontend/src/app/projects/[id]/preview/page.tsx`：
+  - 替换内联 Tree 为 ChapterTree 组件
+  - 新增 `handleSectionSelect`：点击树节点 → `scrollIntoView({ behavior: "smooth" })` 平滑滚动到对应章节锚点
+  - `previewContainerRef` 关联预览区 DOM，`selectedSectionId` 状态追踪当前选中章节
+  - 切换文档时自动重置选中态
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - lxml.html 是 lxml 标准库的一部分（已在 requirements.txt 中），解析 HTML 后使用 `tree.iter('h1'..'h6')` + `text_content()` 匹配章节标题
+  - lxml.html.tostring() 需指定 `method="html"` 才能输出标准 HTML（默认 XML 自闭合标签会导致浏览器渲染异常）
+  - ChapterTree 组件导出 `SectionItem` 类型，预览页等消费者可直接 import 复用
+  - eslint `react-hooks/set-state-in-effect` 规则不允许在 useEffect 中同步调用 setState，搜索自动展开逻辑放在 onChange handler 中通过 useCallback 实现
+  - 锚点 ID 格式为 `sec-{section_id}`，前端通过 `document.getElementById(\`sec-${sectionId}\`)` 查找目标元素
+  - 后续 US-026（AIRevision 高亮）需在预览 HTML 中注入更多标记，可复用本故事建立的 HTML 后处理管线（lxml.html 解析 → 注入标记 → 序列化输出）
+---
