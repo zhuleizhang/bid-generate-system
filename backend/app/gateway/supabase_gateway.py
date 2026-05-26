@@ -336,6 +336,18 @@ class SupabaseGateway:
         """删除指定项目的所有标书任务（用于重新拆解）。"""
         self.client.table("bid_tasks").delete().eq("project_id", project_id).execute()
 
+    def get_documents_by_project(self, project_id: str) -> list[dict[str, Any]]:
+        """查询指定项目下的所有文档记录。"""
+        result = (
+            self.client.table("documents")
+            .select("*")
+            .eq("project_id", project_id)
+            .order("created_at")
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items
+
     # ── AI Revisions ───────────────────────────────────────────────
 
     def insert_ai_revisions(self, revisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
