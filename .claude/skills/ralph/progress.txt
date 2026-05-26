@@ -1,0 +1,52 @@
+# Ralph Progress — 智能标书专员系统
+# Branch: ralph/bid-generate-system
+# Created: 2026-05-26
+# Total stories: 42
+
+================================================================================
+CURRENT: US-001 — 初始化 FastAPI 后端项目结构
+STATUS:   pending
+================================================================================
+
+US-001 | pending | 初始化 FastAPI 后端项目结构
+US-002 | pending | 初始化 Next.js 前端项目结构
+US-003 | pending | 创建完整数据库 Schema（所有表）
+US-004 | pending | DOCX 上传、解包与存储 API
+US-005 | pending | 构建 DOCX 文档结构树
+US-006 | pending | 识别章节与标题层级
+US-007 | pending | 识别表格结构与合并单元格
+US-008 | pending | 生成 TemplateSlot 可填充位置
+US-009 | pending | LLM 辅助判断章节和表格语义类型
+US-010 | pending | 生成未完成项（UnfinishedItem）
+US-011 | pending | 内容回写引擎与 Word/WPS 兼容验证
+US-012 | pending | 项目 CRUD API
+US-013 | pending | 文件上传 API（招标文件、公司资料）
+US-014 | pending | 招标文件解析引擎（PDF + Word）
+US-015 | pending | 招标要求提取与结构化
+US-016 | pending | 标书任务拆解服务
+US-017 | pending | AIRevision 生成引擎
+US-018 | pending | 响应性检查服务
+US-019 | pending | DOCX 最终导出服务
+US-020 | pending | 项目列表和创建/编辑页面
+US-021 | pending | 文件上传组件（拖拽上传 + 进度展示）
+US-022 | pending | 招标解析结果展示与人工编辑
+US-023 | pending | 任务看板页面
+US-024 | pending | DOCX 转 HTML 预览（mammoth 集成）
+US-025 | pending | 章节树导航组件
+US-026 | pending | HTML 预览中的 AIRevision 高亮展示
+US-027 | pending | AIRevision 侧边栏 — 列表与单条操作
+US-028 | pending | AIRevision 批量操作
+US-029 | pending | 未完成项面板与补充资料流程
+US-030 | pending | 响应性检查结果页
+US-031 | pending | DOCX 导出流程 UI
+US-032 | pending | 文档切片与元数据提取
+US-033 | pending | 向量嵌入生成与 pgvector 存储
+US-034 | pending | RAG 混合检索服务
+US-035 | pending | 人工修改 diff 自动记录
+US-036 | pending | LLM diff 归因与分类
+US-037 | pending | 经验推荐与确认（后端）
+US-038 | pending | 经验增强的 AIRevision 生成
+US-039 | pending | 知识库管理页面
+US-040 | pending | Citation 来源引用展示
+US-041 | pending | 经验推荐确认页面
+US-042 | pending | 相似案例与章节推荐侧边栏

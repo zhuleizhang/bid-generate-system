@@ -1,0 +1,737 @@
+{
+  "project": "智能标书专员系统",
+  "branchName": "ralph/bid-generate-system",
+  "description": "面向企业投标场景的智能标书专员系统，核心卖点是开源 DOCX 任意模板理解引擎——自动理解用户上传的任意 Word 投标模板，识别章节、表格、可填充位置，并在正确位置生成 AI 修订内容。",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "初始化 FastAPI 后端项目结构",
+      "description": "作为开发者，我需要搭建 FastAPI 后端项目骨架，包含目录结构、Docker 配置、核心依赖和基础配置。",
+      "acceptanceCriteria": [
+        "创建 backend/ 目录结构：app/api/, app/core/, app/models/, app/services/, app/gateway/",
+        "配置 FastAPI 应用入口 main.py，含 CORS 和基础路由",
+        "创建 requirements.txt：fastapi, uvicorn, lxml, python-docx, docx2python, pdfplumber, pypdf, httpx, supabase, sqlalchemy",
+        "创建 Dockerfile，支持本地开发和容器部署",
+        "配置 app/core/config.py：Supabase 连接、Model Gateway、Storage 等环境变量读取",
+        "Typecheck 通过"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "初始化 Next.js 前端项目结构",
+      "description": "作为开发者，我需要搭建 Next.js + Ant Design Pro 前端项目骨架，包含路由、布局和 API 调用层。",
+      "acceptanceCriteria": [
+        "使用 create-next-app 初始化 frontend/ 项目，TypeScript strict 模式",
+        "安装依赖：antd, @ant-design/pro-components, @supabase/supabase-js, mammoth",
+        "创建基础布局组件：侧边栏导航 + 顶栏 + 内容区",
+        "创建 lib/api.ts：封装后端 API 调用和错误处理",
+        "创建 lib/supabase.ts：Supabase 客户端初始化",
+        "Typecheck 通过"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "创建完整数据库 Schema（所有表）",
+      "description": "作为开发者，我需要在 Supabase 中创建所有核心数据表的 migration，覆盖 E0/E1/E2 全部模型。",
+      "acceptanceCriteria": [
+        "创建 E0 表：documents, document_nodes, template_slots, unfinished_items, model_call_logs",
+        "创建 E1 表：projects, requirements, bid_tasks, section_contents, ai_revisions, edit_diffs, audit_logs, task_runs, export_records, document_versions",
+        "创建 E2 表：document_chunks, experiences, citations",
+        "所有表含 id (UUID PK)、created_at、updated_at 时间戳",
+        "外键约束正确：document_nodes.parent_node_id → document_nodes.id, template_slots.node_id → document_nodes.id 等",
+        "启用 pgvector 扩展，document_chunks.embedding 为 vector(1536) 类型",
+        "migration 文件放在 supabase/migrations/ 目录",
+        "Typecheck 通过"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "DOCX 上传、解包与存储 API",
+      "description": "作为用户，我想通过 API 上传 .docx 投标模板，系统自动解包并提取 WordprocessingML 部件。",
+      "acceptanceCriteria": [
+        "创建 POST /api/documents/upload 端点，接受 .docx 文件上传",
+        "文件存储到 Supabase Storage bucket 'documents'",
+        "使用 zipfile 解包 DOCX，提取 document.xml、styles.xml、numbering.xml、页眉页脚",
+        "解包失败返回明确错误信息（非 DOCX、文件损坏等）",
+        "在 documents 表中创建记录，document_type = 'bid_template'",
+        "解包后的 XML 部件临时存储供后续解析使用",
+        "Typecheck 通过"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "构建 DOCX 文档结构树",
+      "description": "作为开发者，我需要将 DOCX XML 解析为结构化的 DocumentNode 树，每个节点包含位置路径、文本和样式信息。",
+      "acceptanceCriteria": [
+        "使用 lxml 解析 document.xml，遍历 body 下所有 w:p、w:tbl、w:sdt 元素",
+        "每个 DocumentNode 记录：node_id、node_type (paragraph/table/row/cell/header/footer)、text、location_path、style_json、parent_node_id",
+        "location_path 为 XPath 风格路径，能反向定位到原始 XML 元素",
+        "style_json 包含：font_name、font_size、bold、italic、paragraph_style、numbering_style",
+        "父子关系正确还原，支持从根到叶的完整遍历",
+        "页眉页脚作为独立分支纳入结构树，node_type 标记为 header/footer",
+        "解析结果写入 document_nodes 表",
+        "Typecheck 通过"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "识别章节与标题层级",
+      "description": "作为用户，我希望系统自动识别投标模板中的章节结构和标题层级，即使模板未使用标准 Heading 样式。",
+      "acceptanceCriteria": [
+        "识别使用标准 Heading 1-6 样式的段落，提取标题文本和层级",
+        "对非标准样式标题，通过字体大小 ≥ 14pt、加粗、编号模式（如'一、''1.'）推断层级",
+        "输出章节树结构：章节名称、层级(1-6)、起始 node_id、子章节列表",
+        "生成 section_path（如'技术标/实施方案/进度计划'）",
+        "章节与 DocumentNode 通过 section_id 字段关联",
+        "识别结果写入 sections 字段或关联表",
+        "Typecheck 通过"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "识别表格结构与合并单元格",
+      "description": "作为用户，我希望系统识别投标模板中所有表格的结构，包括合并单元格、表头和数据区域。",
+      "acceptanceCriteria": [
+        "识别所有 w:tbl 元素，解析完整的行列网格结构",
+        "检测水平合并（w:gridSpan）和垂直合并（w:vMerge），记录合并范围和跨越的行列号",
+        "根据首行加粗、样式名含 'header' 等特征识别表头行",
+        "输出 table_position：表格序号、行列数、合并单元格映射",
+        "表格中每个单元格作为独立 DocumentNode（node_type = 'table_cell'），含行列坐标",
+        "嵌套表格检测并标记（记录 warning，暂不展开解析）",
+        "Typecheck 通过"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "生成 TemplateSlot 可填充位置",
+      "description": "作为系统，我需要自动判断模板中哪些位置需要填充内容，为每个位置生成 TemplateSlot 并标注置信度和填充策略。",
+      "acceptanceCriteria": [
+        "识别 slot_type：paragraph、table_cell、placeholder、heading_section、section_append",
+        "每个 TemplateSlot 绑定：node_id、location_path、section_path、expected_content_type、style_id、confidence、evidence、fill_strategy",
+        "置信度规则：占位符文本（如'[公司介绍]'）→ ≥ 0.9；空段落 → ≥ 0.7；含提示词段落 → ≥ 0.6",
+        "evidence 字段记录置信度依据（如'检测到占位符文本 [公司介绍]'）",
+        "fill_strategy 指定：replace（替换占位符）、append（段末追加）、cell_fill（填充单元格）、section_append（章节末尾新增）",
+        "confidence < 0.5 的位置自动标记 need_human_confirm = true",
+        "结果写入 template_slots 表",
+        "Typecheck 通过"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "LLM 辅助判断章节和表格语义类型",
+      "description": "作为系统，我需要通过 LLM 辅助判断每个章节和表格的语义类型，以便后续匹配合适的生成策略。",
+      "acceptanceCriteria": [
+        "构建章节分类 prompt：输入章节标题和内容摘要，LLM 输出语义类型（公司介绍/技术方案/实施计划/售后服务/项目案例等）",
+        "构建表格分类 prompt：输入表头文本，LLM 输出表格类型（响应表/偏离表/报价表/人员表/案例表/评分表等）",
+        "分类结果回写到对应 TemplateSlot.expected_content_type",
+        "LLM 调用失败时降级为关键词规则匹配（如标题含'报价'→报价表）",
+        "每次 LLM 调用记录到 model_call_logs（scenario = 'semantic_classification'）",
+        "Typecheck 通过"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "生成未完成项（UnfinishedItem）",
+      "description": "作为系统，当模板中存在无法判断或无法安全填充的位置时，必须生成 UnfinishedItem，不能静默跳过。",
+      "acceptanceCriteria": [
+        "触发条件：confidence < 0.3、无法解析的表格结构、嵌套表格、不支持的格式",
+        "每条 UnfinishedItem 记录：item_type、node_id、section_path、reason、impact、risk_level (blocking/high/medium/low)、suggested_action",
+        "低置信度 TemplateSlot（confidence < 0.3）自动关联对应的 UnfinishedItem",
+        "结果按 risk_level 降序排列",
+        "结果写入 unfinished_items 表",
+        "Typecheck 通过"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "内容回写引擎与 Word/WPS 兼容验证",
+      "description": "作为系统，我需要将内容回写到原始 DOCX 的正确位置，保证生成文件能在 Word 和 WPS 中正常打开。",
+      "acceptanceCriteria": [
+        "实现 replace 策略：用新文本替换 w:p 内所有 w:r 的 w:t 内容，保留 w:rPr 原始样式",
+        "实现 append 策略：在目标段落末尾追加新 w:r 元素，继承段落样式",
+        "实现 cell_fill 策略：定位 w:tc 内段落，替换或追加文本",
+        "回写前自动复制原始模板到 Supabase Storage 作为备份",
+        "回写后自动验证：重新解包文件、检查 document.xml 结构完整性",
+        "创建 GET /api/documents/{id}/download 端点，返回回写后的 .docx 文件",
+        "Typecheck 通过"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "项目 CRUD API",
+      "description": "作为用户，我需要创建、编辑、删除和查看投标项目，作为所有后续操作的容器。",
+      "acceptanceCriteria": [
+        "POST /api/projects — 创建项目：name、tender_org、industry、project_type、deadline",
+        "GET /api/projects — 项目列表，支持分页、按状态筛选、按创建时间排序",
+        "GET /api/projects/{id} — 项目详情，含文件列表和进度概览",
+        "PUT /api/projects/{id} — 编辑项目信息",
+        "DELETE /api/projects/{id} — 删除项目（仅允许 pending 状态）",
+        "project_type 枚举：工程类/货物类/服务类",
+        "industry 枚举：建筑/IT/制造/医疗/教育/其他",
+        "Typecheck 通过"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "文件上传 API（招标文件、公司资料）",
+      "description": "作为用户，我想上传招标文件（PDF/Word）和公司资料到项目中，系统自动创建文档记录。",
+      "acceptanceCriteria": [
+        "POST /api/projects/{id}/files/upload — 支持多文件上传",
+        "根据文件扩展名自动设置 document_type：bid_template / tender_doc / company_material",
+        "文件存储到 Supabase Storage，路径：projects/{project_id}/{document_type}/{filename}",
+        "上传后自动创建 documents 表记录，关联到项目",
+        "返回上传进度（文件大小、状态），失败时返回具体错误",
+        "支持的文件类型：.docx, .pdf, .doc（仅存储，解析需 .docx 或 .pdf）",
+        "Typecheck 通过"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "招标文件解析引擎（PDF + Word）",
+      "description": "作为用户，我希望系统自动解析上传的招标文件，提取文本内容和章节结构。",
+      "acceptanceCriteria": [
+        "PDF 解析：使用 pdfplumber 提取文本和表格，pypdf 作为降级方案",
+        "Word 解析：使用 python-docx 提取段落和表格文本",
+        "输出结构化文本：章节标题、段落内容、表格数据",
+        "解析结果存储为 DocumentVersion（version_type = 'parsed'）",
+        "解析失败的文件记录错误信息，不阻塞其他文件",
+        "Typecheck 通过"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "招标要求提取与结构化",
+      "description": "作为用户，我希望系统从解析后的招标文件中自动提取关键要求、评分标准和废标项。",
+      "acceptanceCriteria": [
+        "调用 LLM 从解析文本中提取：项目基本信息、商务要求、技术要求、评分标准、废标项、资质要求、交付要求、格式要求",
+        "每条 Requirement 记录：requirement_type、title、description、priority (high/medium/low)、is_mandatory、risk_level、source_text（原文摘录）",
+        "is_mandatory = true 的要求自动标记 risk_level = 'high'",
+        "废标项自动识别并标记为 blocking 级别",
+        "提取结果写入 requirements 表，关联到项目和源文档",
+        "LLM 调用记录到 model_call_logs（scenario = 'requirement_extraction'）",
+        "Typecheck 通过"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "标书任务拆解服务",
+      "description": "作为用户，我希望系统根据招标要求和投标模板自动拆解标书制作任务清单。",
+      "acceptanceCriteria": [
+        "根据 requirements 自动生成 bid_tasks，任务类型覆盖：商务标、技术标、报价、资质材料、项目案例、人员材料、售后服务、偏离表、响应表、格式检查",
+        "每条 BidTask：title、task_type、related_requirement_ids (JSONB)、assignee_type (ai/human/ai_then_human/human_required)、priority、status",
+        "敏感任务（task_type 含报价/资质/承诺）默认 assignee_type = 'human_required'",
+        "任务按 section_path 分组，与模板章节对应",
+        "结果写入 bid_tasks 表",
+        "Typecheck 通过"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "AIRevision 生成引擎",
+      "description": "作为系统，我需要根据 TemplateSlot、招标要求和公司资料，调用 LLM 在投标模板的正确位置生成 AIRevision。",
+      "acceptanceCriteria": [
+        "接收 document_id，获取该模板的所有 template_slots（按 section_path 排序）",
+        "根据 TemplateSlot.expected_content_type 和 section_path 匹配相关 requirements",
+        "构建 LLM prompt：模板上下文（前后段落）、匹配的招标要求、slot 信息、fill_strategy",
+        "调用 LLM 生成填充文本，输出为 AIRevision 记录：revision_type (replace/append/new_section)、node_id、template_slot_id、before_content、ai_content、comment",
+        "AIRevision 绑定 source_requirement_ids (JSONB) 和 document_id",
+        "涉及资质/报价/案例/承诺的内容自动设置 risk_level = 'high'、status = 'need_human_confirm'",
+        "无法生成的位置（无匹配资料、LLM 返回空）生成 UnfinishedItem",
+        "LLM 调用记录到 model_call_logs（scenario = 'generation'）",
+        "结果写入 ai_revisions 表",
+        "Typecheck 通过"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "响应性检查服务",
+      "description": "作为系统，我需要在导出前检查每个招标要求是否已有对应的 AIRevision 或人工内容。",
+      "acceptanceCriteria": [
+        "建立 requirement_id → ai_revision/section_content 的响应映射",
+        "检查逻辑：每个 is_mandatory 的 Requirement 必须有已接受的 AIRevision 或 section_content",
+        "检查废标项是否全部满足",
+        "输出检查结果：PASS（已覆盖）、FAIL（无响应且 mandatory）、WARNING（有响应但未确认）",
+        "FAIL 项附带问题说明和建议动作",
+        "结果写入 review_results 或直接返回给前端",
+        "Typecheck 通过"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "DOCX 最终导出服务",
+      "description": "作为系统，我需要将用户采纳的 AIRevision 合成为最终 DOCX 投标文件。",
+      "acceptanceCriteria": [
+        "仅合成 status = 'accepted' 或 'edited_then_accepted' 的 AIRevision",
+        "从原始模板副本出发，按 fill_strategy 逐个应用回写操作",
+        "导出前检查：存在 blocking 级别 UnfinishedItem 时阻断导出，返回 409 和原因列表",
+        "导出文件存储到 Supabase Storage：exports/{project_id}/{timestamp}/final_bid.docx",
+        "创建 DocumentVersion 记录（version_type = 'export'）",
+        "创建 ExportRecord：project_id、document_id、exported_by、file_path、revision_count",
+        "提供 GET /api/projects/{id}/export/download 下载端点",
+        "Typecheck 通过"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "项目列表和创建/编辑页面",
+      "description": "作为用户，我想在前端查看项目列表、创建新项目和编辑项目信息。",
+      "acceptanceCriteria": [
+        "项目列表页 /projects：Ant Design Table 展示项目名称、招标单位、截止时间、状态、进度百分比",
+        "支持按状态筛选（全部/进行中/已完成/已归档）和搜索项目名称",
+        "新建项目页 /projects/new：表单含项目名称、招标单位、行业（下拉选择）、项目类型、截止时间（DatePicker）",
+        "编辑项目页 /projects/{id}/edit：预填现有数据，支持修改",
+        "创建/编辑成功后跳转回列表页，显示成功提示",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "文件上传组件（拖拽上传 + 进度展示）",
+      "description": "作为用户，我想在项目详情页通过拖拽或点击上传招标文件、公司资料和投标模板。",
+      "acceptanceCriteria": [
+        "项目详情页 /projects/{id} 包含文件上传区域",
+        "使用 Ant Design Upload + Dragger 组件，支持拖拽和点击上传",
+        "上传前自动检测文件类型（仅允许 .docx, .pdf, .doc），非法类型提示",
+        "上传中显示进度条，上传完成显示文件列表（文件名、类型标签、大小、上传时间）",
+        "上传失败显示错误提示和重试按钮",
+        "文件按类型分组显示：投标模板 / 招标文件 / 公司资料",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "招标解析结果展示与人工编辑",
+      "description": "作为用户，我想查看系统从招标文件中提取的要求列表，并能手动修正和补充。",
+      "acceptanceCriteria": [
+        "项目详情页增加'招标要求'Tab，展示提取的 requirements 列表",
+        "列表分组：基本信息 / 商务要求 / 技术要求 / 评分标准 / 废标项 / 资质要求 / 格式要求",
+        "每条显示：标题、内容摘要、优先级标签、是否强制（红色标记）、风险等级标签",
+        "支持行内编辑：点击编辑图标弹出 Modal，修改任意字段",
+        "支持手动添加新要求：'+ 添加要求'按钮",
+        "支持删除误提取的要求（软删除或标记为 ignored）",
+        "修改后自动保存到后端",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "任务看板页面",
+      "description": "作为用户，我想在任务看板中查看、筛选和更新标书制作任务的分配和状态。",
+      "acceptanceCriteria": [
+        "任务看板页 /projects/{id}/tasks：Kanban 列视图（待处理/进行中/已完成）或列表视图，支持切换",
+        "任务卡片显示：标题、任务类型标签、优先级、负责人类型（AI/人工/协作）图标、关联要求数",
+        "筛选栏：按任务类型、优先级、负责人类型、状态筛选",
+        "支持拖拽任务到不同状态列，自动更新 status",
+        "点击任务卡片展开详情：关联招标要求列表、模板位置、操作历史",
+        "支持手动认领任务（更新 assignee）和修改任务状态",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "DOCX 转 HTML 预览（mammoth 集成）",
+      "description": "作为用户，我想在浏览器中以 HTML 格式预览投标模板的内容。",
+      "acceptanceCriteria": [
+        "创建 GET /api/documents/{id}/preview 端点，调用 mammoth 将 DOCX 转 HTML",
+        "返回 HTML 字符串和章节结构信息",
+        "前端预览页 /projects/{id}/preview：左侧章节树 + 右侧 HTML 内容区",
+        "HTML 渲染保留基本格式：标题层级、加粗、列表、表格",
+        "预览区支持滚动，内容区占满可用高度",
+        "Typecheck 通过"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "章节树导航组件",
+      "description": "作为用户，我想通过左侧章节树快速导航模板的各个章节，点击后右侧预览自动滚动到对应位置。",
+      "acceptanceCriteria": [
+        "创建 ChapterTree 组件：Ant Design Tree，数据源来自文档解析的章节结构",
+        "树节点显示章节标题和层级缩进，支持全部展开/折叠",
+        "点击树节点时，右侧 HTML 预览区平滑滚动到对应章节位置（通过锚点 ID 匹配）",
+        "当前选中的树节点高亮显示",
+        "支持搜索章节标题，输入关键词后过滤树节点",
+        "章节树数据从 GET /api/documents/{id}/sections 获取",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "HTML 预览中的 AIRevision 高亮展示",
+      "description": "作为用户，我想在 HTML 预览中清晰看到每条 AIRevision 的位置和内容差异。",
+      "acceptanceCriteria": [
+        "获取文档的所有 AIRevision，根据 node_id 在 HTML 预览中定位并注入高亮标记",
+        "AI 新增内容：绿色背景 + 左侧绿色竖线边框",
+        "AI 修改内容：黄色背景 + 删除线显示原文 + 绿色显示新文",
+        "待确认内容：橙色背景 + 警告图标",
+        "高亮区域可点击：弹出 Popover 显示 AIRevision 详情（修改原因、引用来源、置信度、风险等级）",
+        "表格中 AI 填充的单元格同样高亮，含单元格级别的 AI 标记",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "AIRevision 侧边栏 — 列表与单条操作",
+      "description": "作为用户，我想在侧边栏查看所有 AIRevision 列表，并逐条接受、拒绝或编辑。",
+      "acceptanceCriteria": [
+        "预览页右侧侧边栏展示 AIRevision 列表，按章节分组（折叠面板）",
+        "每条修订显示：类型标签（新增/修改）、ai_content 摘要、风险等级标签、状态标签、置信度百分比",
+        "单条操作按钮：接受（绿色）、拒绝（红色）、编辑（蓝色）、标记待确认（橙色）",
+        "点击'编辑'弹出 Modal：展示 AI 原文和编辑框，用户修改后保存为 edited_then_accepted",
+        "操作后状态实时更新（PATCH /api/revisions/{id}/status），无页面刷新",
+        "所有操作写入 audit_logs（action = accept_revision / reject_revision / edit_revision）",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "AIRevision 批量操作",
+      "description": "作为用户，我想批量接受或拒绝多条 AIRevision，提高审阅效率。",
+      "acceptanceCriteria": [
+        "侧边栏顶部增加批量操作工具栏",
+        "'批量接受低风险'按钮：一键接受所有 risk_level != 'high' 且 status = 'pending' 的修订",
+        "'批量拒绝'按钮：勾选多条修订后批量拒绝",
+        "'全选/取消全选'复选框",
+        "批量操作前弹出确认对话框，显示将影响的修订数量",
+        "批量操作结果：成功数、失败数、失败原因列表",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "未完成项面板与补充资料流程",
+      "description": "作为用户，我想看到系统无法自动处理的位置及原因，并能补充资料后重新生成。",
+      "acceptanceCriteria": [
+        "预览页底部或侧边栏 Tab '未完成项'：按 risk_level 分组展示 UnfinishedItem 列表",
+        "每条显示：位置（section_path）、原因、影响、风险等级标签（颜色区分）、建议动作",
+        "未完成位置在 HTML 预览中醒目标记（红色虚线边框 + 警告图标），与列表项联动高亮",
+        "筛选：按风险等级、章节、item_type",
+        "'补充资料'按钮：触发文件上传 Modal，上传后调用后端重新生成该位置的 AIRevision",
+        "'手动填写'按钮：弹出编辑框，用户直接填写内容后创建 manual AIRevision",
+        "完成后状态更新为 resolved，可标记为 ignored（需填写忽略原因）",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "响应性检查结果页",
+      "description": "作为用户，我想在导出前查看招标要求的响应覆盖情况。",
+      "acceptanceCriteria": [
+        "项目详情页增加'响应检查'Tab或独立页 /projects/{id}/review",
+        "展示响应矩阵表格：左侧列招标要求，右侧列对应 AIRevision/内容状态",
+        "每条要求的状态标记：PASS（绿色，已覆盖）、FAIL（红色，无响应）、WARNING（黄色，有响应但未确认）",
+        "FAIL 项展开显示问题说明和建议动作",
+        "顶部统计卡片：总要求数、已覆盖数、未覆盖数、覆盖率百分比",
+        "存在 FAIL 项时显示全局警告横幅'存在未响应的强制要求，建议处理后再导出'",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "DOCX 导出流程 UI",
+      "description": "作为用户，我想在前端触发最终 DOCX 投标文件的导出和下载。",
+      "acceptanceCriteria": [
+        "项目详情页增加'导出'按钮（Ant Design Button, type = primary）",
+        "点击导出前自动执行响应性检查，存在 blocking UnfinishedItem 时阻断并弹窗显示原因列表",
+        "非阻断问题弹出确认对话框：列出 WARNING 项，用户确认后继续导出",
+        "导出中显示 Loading 状态和进度提示（'正在合成文档...'）",
+        "导出完成后自动触发浏览器下载 .docx 文件",
+        "导出历史记录在项目详情页展示：导出时间、导出人、文件大小、下载链接",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "文档切片与元数据提取",
+      "description": "作为用户，我想将公司资料结构化导入知识库，自动按章节/段落边界切片并提取元数据。",
+      "acceptanceCriteria": [
+        "创建 POST /api/knowledge/documents/upload 端点，上传公司资料（Word/PDF/文本）",
+        "使用 python-docx / pdfplumber 提取文本后，按章节标题、段落边界、表格边界进行切片",
+        "每个切片（DocumentChunk）：chunk_type (text/table/case/qualification/experience)、content、chunk_index、source_document_id",
+        "切片元数据：industry、section_type、project_type、customer_type（从文件名或手动标注获取）",
+        "切片存储到 document_chunks 表",
+        "Typecheck 通过"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "向量嵌入生成与 pgvector 存储",
+      "description": "作为系统，我需要为每个知识库切片生成向量嵌入并存储到 pgvector，以支持语义检索。",
+      "acceptanceCriteria": [
+        "切片创建后自动触发嵌入生成（通过 Supabase Edge Function 或后端异步任务）",
+        "调用 embedding 模型（如 text-embedding-3-small 或本地模型）生成向量",
+        "向量存储到 document_chunks.embedding（vector(1536) 类型）",
+        "支持批量生成：一次处理多个切片，记录进度",
+        "嵌入生成失败时记录错误，不阻塞切片创建",
+        "创建 POST /api/knowledge/documents/{id}/reindex 端点，支持重新生成索引",
+        "Typecheck 通过"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-034",
+      "title": "RAG 混合检索服务",
+      "description": "作为系统，AI 生成标书内容时需自动检索相关知识片段，并提供可追溯的引用来源。",
+      "acceptanceCriteria": [
+        "创建 RAG 检索服务：POST /api/knowledge/search，接收 query、top_k、filters",
+        "实现混合检索：pgvector 余弦相似度（向量检索）+ Postgres FTS（关键词检索）+ metadata 过滤",
+        "结果融合与 rerank：向量结果和关键词结果去重后按相关性排序",
+        "支持元数据过滤：industry、section_type、chunk_type",
+        "过滤过期资质（通过 metadata 中的 expiry_date 字段）",
+        "每条检索结果包含：chunk_id、content、source_document_name、section_title、score",
+        "前端可传入检索场景参数（generation/reference），后端据此调整检索策略",
+        "Typecheck 通过"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "人工修改 diff 自动记录",
+      "description": "作为系统，用户每次修改 AIRevision 内容时需自动记录修改前后的差异。",
+      "acceptanceCriteria": [
+        "在 AIRevision 状态变更为 edited_then_accepted 时自动生成 EditDiff 记录",
+        "EditDiff 字段：ai_revision_id、before_text (ai_content)、after_text (用户编辑后内容)、diff_text（逐字差异）、edit_type、edit_reason",
+        "edit_type 初始为 'manual_edit'，后续由 US-036 的 LLM 重新分类",
+        "关联上下文：section_content_id、related_requirement_ids (JSONB)",
+        "记录 editor_id、accepted = true、used_in_final = true",
+        "结果写入 edit_diffs 表，操作记录到 audit_logs",
+        "Typecheck 通过"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "LLM diff 归因与分类",
+      "description": "作为系统，我需要自动分析人工修改的意图和类型，判断是否适合沉淀为经验。",
+      "acceptanceCriteria": [
+        "定时或事件触发：新 EditDiff 创建后自动调用 LLM 分析",
+        "LLM 分析维度：改了什么、为什么改、修改类型、通用性判断",
+        "修改类型分类：polish/supplement/delete/compliance_fix/format_fix/risk_control/customer_customization/qualification_fix/case_replacement/technical_enhancement/business_adjustment",
+        "通用性判断：仅当前项目特殊要求 vs 可复用经验",
+        "适用范围建议：company_general / industry_specific / customer_specific",
+        "分析结果写回 EditDiff 的 edit_type 字段和 metadata JSONB",
+        "LLM 调用记录到 model_call_logs（scenario = 'diff_attribution'）",
+        "Typecheck 通过"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "经验推荐与确认（后端）",
+      "description": "作为系统，我需要将分析后的 diff 推荐给用户，支持人工确认后入库为经验。",
+      "acceptanceCriteria": [
+        "筛选可推荐入库的 EditDiff：通用性 = 'reusable'、适用范围明确",
+        "POST /api/experiences/recommend — 返回待确认的经验推荐列表",
+        "每条推荐包含：原始 diff 摘要、AI 分析的修改类型、建议适用范围、来源项目信息",
+        "POST /api/experiences/confirm — 用户确认入库：experience_type、applicable_industry、applicable_section_type、applicable_customer_type",
+        "POST /api/experiences/reject — 拒绝推荐，标记为仅当前项目使用",
+        "未中标项目来源的 diff 自动降低推荐优先级（在返回列表中排在后面）",
+        "经验写入 experiences 表，支持版本管理（同一经验修改时保留旧版本，is_latest 标记）",
+        "Typecheck 通过"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "经验增强的 AIRevision 生成",
+      "description": "作为系统，在生成新标书 AIRevision 时需自动检索相关历史经验，提升初稿质量。",
+      "acceptanceCriteria": [
+        "在 AIRevision 生成流程（US-017）中集成经验检索",
+        "检索维度：同行业历史经验、同章节类型经验、相似招标要求的修改经验、中标项目优秀表述",
+        "检索结果注入 LLM 生成 prompt 的 '参考经验' 部分",
+        "中标项目来源的经验提高检索权重",
+        "生成后记录经验引用：哪些经验被用于生成，写入 Citation 或 AIRevision.metadata",
+        "用户可在侧边栏查看每条 AIRevision 引用了哪些历史经验",
+        "Typecheck 通过"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "知识库管理页面",
+      "description": "作为用户，我想在知识库管理页面上传、浏览、搜索和管理公司资料和案例。",
+      "acceptanceCriteria": [
+        "知识库页面 /knowledge：展示已索引的文档列表（Ant Design Table）",
+        "列表列：文档名、类型标签、切片数量、行业、上传时间、状态（已索引/索引中/索引失败）",
+        "拖拽上传区：支持上传 Word/PDF/文本文件到知识库",
+        "搜索栏：支持按文档名、行业、类型搜索",
+        "操作按钮：查看切片内容（展开 Modal）、删除文档（含确认弹窗）、重新索引",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Citation 来源引用展示",
+      "description": "作为用户，我想点击 AIRevision 中的 Citation 查看知识库来源原文。",
+      "acceptanceCriteria": [
+        "在 AIRevision 详情 Popover 中展示 Citation 列表：来源文档名、章节标题、匹配内容摘要",
+        "点击 Citation 弹出 Modal 展示来源原文片段（高亮匹配部分）和文档信息",
+        "Citation 数据从 AIRevision.metadata 或 citations 表读取",
+        "新增'知识溯源'Tab 在预览页：以图表形式展示 AI 内容的引用关系（内容 → 来源文档）",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-041",
+      "title": "经验推荐确认页面",
+      "description": "作为用户，我想审阅系统推荐的经验并决定是否入库。",
+      "acceptanceCriteria": [
+        "经验管理页 /experiences：Tab 切换'待确认'和'已入库'列表",
+        "待确认列表：展示 diff 原文、AI 分析（修改类型、通用性、建议适用范围）、来源项目、创建时间",
+        "每条推荐有操作按钮：'保存为经验'（弹出配置 Modal 设置类型/行业/章节/客户类型）、'仅当前项目'（不入库）、'忽略'",
+        "已入库列表：展示经验标题、类型标签、适用范围标签、版本号、创建时间",
+        "支持编辑已入库经验（修改适用范围）和查看历史版本",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-042",
+      "title": "相似案例与章节推荐侧边栏",
+      "description": "作为用户，在预览 AIRevision 时，我想看到相似历史项目的中标章节和案例作为参考。",
+      "acceptanceCriteria": [
+        "在预览页侧边栏增加'相似参考'Tab",
+        "推荐维度：同行业 + 同章节类型 + 同客户类型的历史内容",
+        "调用检索接口 GET /api/knowledge/similar?section_path=xxx&industry=xxx",
+        "每条推荐显示：来源项目名、章节标题、内容摘要、匹配度百分比",
+        "点击推荐项展开 Modal 查看原始内容全文",
+        "'引用'按钮：一键将历史内容作为新的 AIRevision 插入当前位置（status = pending，标注来源项目）",
+        "中标项目推荐内容带有'已中标'绿色标签，排序靠前",
+        "Typecheck 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 42,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
