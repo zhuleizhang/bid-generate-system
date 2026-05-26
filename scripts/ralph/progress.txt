@@ -24,7 +24,7 @@
 - DOCX vMerge 的 val 属性可能缺失（部分工具生成），需根据同列上方是否已有 restart 来推断当前单元格是否为 continue
 
 ================================================================================
-CURRENT: US-029 — 未完成项面板与补充资料流程
+CURRENT: US-030 — 响应性检查结果页
 STATUS:   done
 ================================================================================
 
@@ -57,7 +57,7 @@ US-026 |   done  | HTML 预览中的 AIRevision 高亮展示
 US-027 |   done  | AIRevision 侧边栏 — 列表与单条操作
 US-028 |   done  | AIRevision 批量操作
 US-029 |   done  | 未完成项面板与补充资料流程
-US-030 | pending | 响应性检查结果页
+US-030 |   done  | 响应性检查结果页
 US-031 | pending | DOCX 导出流程 UI
 US-032 | pending | 文档切片与元数据提取
 US-033 | pending | 向量嵌入生成与 pgvector 存储
@@ -688,4 +688,23 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - Tabs 组件用于切换侧边栏面板（AI 修订/未完成项），filter(Boolean) 确保只有有数据的 Tab 才显示
   - 后续 US-030（响应性检查结果页）可参考本故事的 HTML 注入+联动高亮模式
   - 后续 US-031（DOCX 导出流程 UI）可直接复用本故事的 Modal + 操作按钮模式
+---
+
+## 2026-05-26 — US-030
+- 创建了 `frontend/src/lib/types/review.ts`：ReviewCheckItem、ReviewCheckResult 接口和 3 组常量映射（状态标签/颜色/图标）
+- 创建了 `frontend/src/app/projects/[id]/review/page.tsx`：响应性检查结果页
+  - 页面加载时自动调用 POST /api/projects/{id}/review 执行检查
+  - 统计卡片行：总要求数、已覆盖数（绿）、无响应数（红）、待确认数（黄）、覆盖率百分比
+  - 存在 FAIL 项时显示全局警告横幅"存在未响应的强制要求，建议处理后再导出"
+  - 响应矩阵表格：状态标签（颜色区分）、类型标签、标题（含强制标记和风险等级标签）
+  - FAIL/WARNING 行可展开：显示检查结果、建议动作、关联修订数
+  - FAIL 项默认全部展开，PASS 项折叠
+  - 支持刷新按钮重新执行检查、错误态/空态/加载态覆盖
+- 更新了 `frontend/src/app/projects/[id]/page.tsx`：顶栏新增"响应检查"按钮（SafetyCertificateOutlined 图标），跳转到响应检查页
+- tsc + eslint 均通过，mypy 后端无变更通过
+- **供后续迭代参考的经验：**
+  - 后端 review API（US-018）已支持 POST+GET 双端点，前端统一使用 POST 触发实时检查
+  - 统计卡片的 Col span 按卡片数量动态计算（24 / statsCards.length），适配不同屏幕尺寸
+  - eslint `react-hooks/set-state-in-effect` 规则要求 useEffect 中不能直接调用包含 setState 的 useCallback，需内联 async 逻辑
+  - 后续 US-031（DOCX 导出流程 UI）可直接复用本页面的检查结果，在导出前判断 has_blocking_issues
 ---
