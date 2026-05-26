@@ -1,6 +1,8 @@
 """文档 API — 文件上传、解包、解析、回写和下载端点。"""
 
-from fastapi import APIRouter, UploadFile, File
+import json
+
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import Response
 
 from app.services.document_service import process_docx_upload, parse_and_store_document, detect_and_store_sections
@@ -8,12 +10,14 @@ from app.services.template_slot_service import generate_template_slots
 from app.services.llm_classifier_service import classify_template_slots
 from app.services.unfinished_item_service import generate_unfinished_items
 from app.services.docx_writer import apply_writeback
+from app.services.tender_parser import parse_tender_document
 from app.models.document import DocumentResponse, UploadError
 from app.models.document_node import ParseResult
 from app.models.section import SectionDetectionResult
 from app.models.template_slot import SlotGenerationResult
 from app.models.unfinished_item import UnfinishedItemGenerationResult
 from app.models.writeback import WriteBackOperation, WriteBackResult
+from app.models.tender_parse import TenderParseResponse
 from app.gateway.supabase_gateway import SupabaseGateway
 
 documents_router = APIRouter(prefix="/documents", tags=["documents"])
@@ -117,3 +121,50 @@ async def download_document(doc_id: str):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@documents_router.post("/{doc_id}/parse-tender", response_model=TenderParseResponse)
+async def parse_tender_document_endpoint(doc_id: str):
+    """解析招标文件（PDF 或 Word），提取结构化文本和表格。
+
+    PDF 使用 pdfplumber 提取文本和表格，pypdf 为降级方案；
+    Word 使用 python-docx 提取段落和表格。
+    解析结果存储到 document_versions 表（version_type = 'parsed'）。
+    """
+    try:
+        result = await parse_tender_document(doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"解析失败: {str(e)}")
+
+    return TenderParseResponse(**result)
+
+
+@documents_router.get("/{doc_id}/parsed-content")
+async def get_parsed_content(doc_id: str):
+    """查询指定文档的招标解析结果（最新一条 parsed 类型的版本记录）。"""
+    gw = SupabaseGateway()
+
+    doc = gw.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    versions = gw.get_document_versions(doc_id)
+    parsed_versions = [v for v in versions if v.get("version_type") == "parsed"]
+    if not parsed_versions:
+        return {"document_id": doc_id, "status": "not_parsed", "content": None}
+
+    latest = parsed_versions[0]
+    content_raw = latest.get("content", "{}")
+    content = json.loads(content_raw) if isinstance(content_raw, str) else content_raw
+
+    return {
+        "document_id": doc_id,
+        "status": "parsed",
+        "version_id": latest.get("id"),
+        "file_type": latest.get("metadata", {}).get("file_type", ""),
+        "sections": content.get("sections", []),
+        "tables": content.get("tables", []),
+        "full_text": content.get("full_text", ""),
+    }

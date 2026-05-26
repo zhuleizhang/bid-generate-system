@@ -24,7 +24,7 @@
 - DOCX vMerge 的 val 属性可能缺失（部分工具生成），需根据同列上方是否已有 restart 来推断当前单元格是否为 continue
 
 ================================================================================
-CURRENT: US-011 — 内容回写引擎与 Word/WPS 兼容验证
+CURRENT: US-014 — 招标文件解析引擎（PDF + Word）
 STATUS:   done
 ================================================================================
 
@@ -41,7 +41,7 @@ US-010 |   done  | 生成未完成项（UnfinishedItem）
 US-011 |   done  | 内容回写引擎与 Word/WPS 兼容验证
 US-012 |   done  | 项目 CRUD API
 US-013 |   done  | 文件上传 API（招标文件、公司资料）
-US-014 | pending | 招标文件解析引擎（PDF + Word）
+US-014 |   done  | 招标文件解析引擎（PDF + Word）
 US-015 | pending | 招标要求提取与结构化
 US-016 | pending | 标书任务拆解服务
 US-017 | pending | AIRevision 生成引擎
@@ -291,3 +291,23 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 后续 US-021（文件上传组件 UI）直接调用本端点
 ---
 
+## 2026-05-26 23:00 — US-014
+- 创建了 `app/models/tender_parse.py`：TenderSection、TenderTable、TenderParseResponse Pydantic 模型
+- 创建了 `app/services/tender_parser.py`：PDF 和 Word 解析引擎
+  - PDF：pdfplumber 为主（文本 + 表格提取），pypdf 为降级方案（仅文本）
+  - Word：python-docx 提取段落和表格，Heading 样式检测章节
+  - 纯文本章节检测：6 组正则模式覆盖中文标书常见标题格式（第X章、一、/（一）/1./1.1 等）
+  - 解析结果输出结构化 JSON：sections（标题+层级+段落列表）、tables（表头+数据行）、full_text
+- 在 `app/gateway/supabase_gateway.py` 中新增 insert_document_version、get_document_versions 方法
+- 在 `app/api/documents.py` 中新增：
+  - POST /api/documents/{id}/parse-tender — 触发招标文件解析，根据 mime_type 自动选择引擎
+  - GET /api/documents/{id}/parsed-content — 查询最新解析结果
+- 解析结果存储到 document_versions 表（version_type = 'parsed'，content 存 JSON，metadata 存文件类型/章节数/表格数/文本长度）
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - document_versions 表使用 content TEXT 字段存储结构化 JSON，metadata JSONB 存储元信息
+  - PDF 表格提取依赖 pdfplumber 的 page.extract_tables()，返回 list[list[str | None]]
+  - DOCX 段落样式通过 para.style.name 获取，Heading 开头的样式名表示标题
+  - 纯文本标题检测使用正则匹配行首模式 + 行长度 < 120 字符判断，避免将正文中出现的数字编号误判为标题
+  - 后续 US-015（招标要求提取）将读取本接口的解析结果作为 LLM prompt 输入
+---

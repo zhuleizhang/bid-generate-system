@@ -257,3 +257,23 @@ class SupabaseGateway:
             .execute()
         )
         return result.count or 0  # type: ignore[union-attr]
+
+    # ── Document Versions ────────────────────────────────────────
+
+    def insert_document_version(self, data: dict[str, Any]) -> dict[str, Any]:
+        """插入一条文档版本记录（parsed/export/original）。"""
+        result = self.client.table("document_versions").insert(data).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else {}
+
+    def get_document_versions(self, document_id: str) -> list[dict[str, Any]]:
+        """查询指定文档的所有版本记录。"""
+        result = (
+            self.client.table("document_versions")
+            .select("*")
+            .eq("document_id", document_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items
