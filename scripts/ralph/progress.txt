@@ -24,7 +24,7 @@
 - DOCX vMerge 的 val 属性可能缺失（部分工具生成），需根据同列上方是否已有 restart 来推断当前单元格是否为 continue
 
 ================================================================================
-CURRENT: US-008 — 生成 TemplateSlot 可填充位置
+CURRENT: US-011 — 内容回写引擎与 Word/WPS 兼容验证
 STATUS:   done
 ================================================================================
 
@@ -37,8 +37,8 @@ US-006 |   done  | 识别章节与标题层级
 US-007 |   done  | 识别表格结构与合并单元格
 US-008 |   done  | 生成 TemplateSlot 可填充位置
 US-009 |   done  | LLM 辅助判断章节和表格语义类型
-US-010 | pending | 生成未完成项（UnfinishedItem）
-US-011 | pending | 内容回写引擎与 Word/WPS 兼容验证
+US-010 |   done  | 生成未完成项（UnfinishedItem）
+US-011 |   done  | 内容回写引擎与 Word/WPS 兼容验证
 US-012 | pending | 项目 CRUD API
 US-013 | pending | 文件上传 API（招标文件、公司资料）
 US-014 | pending | 招标文件解析引擎（PDF + Word）
@@ -215,3 +215,43 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - model_call_logs 的 request_json 记录 prompt 摘要（类型+slot 数量），response_json 存储 LLM 返回原文
   - 后续 US-017（AIRevision 生成引擎）可直接复用 ModelGateway 和 model_call_logs 记录模式
 ---
+
+## 2026-05-26 20:00 — US-010
+- 创建了 `app/models/unfinished_item.py`：UnfinishedItemResponse 和 UnfinishedItemGenerationResult Pydantic 模型
+- 创建了 `app/services/unfinished_item_service.py`：UnfinishedItem 生成引擎，3 种检测策略
+- 在 `app/gateway/supabase_gateway.py` 中新增 insert_unfinished_items、delete_unfinished_items、get_unfinished_items 方法
+- 在 `app/api/documents.py` 中新增 POST /api/documents/{id}/generate-unfinished 和 GET /api/documents/{id}/unfinished 端点
+- 检测策略：
+  1. 低置信度 TemplateSlot（confidence < 0.3）→ item_type=low_confidence，关联 template_slot_id
+  2. 嵌套表格（从 style_json.nested_table_warnings 检测）→ item_type=nested_table，risk_level=high
+  3. 无 slot 覆盖的空表格单元格 → item_type=unfilled_table_cell，risk_level=medium
+- risk_level 降序排列：blocking > high > medium > low（使用字典映射排序）
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - UnfinishedItem 的 template_slot_id 是可选外键（nullable UUID），低置信度 slot 需要回填此字段建立关联
+  - get_unfinished_items 在应用层做了 risk_level 排序，因为 SQL ORDER BY 无法直接按自定义枚举顺序排序
+  - 嵌套表格检测依赖于 US-007 写入的 style_json.nested_table_warnings 字段
+  - 后续 US-011（内容回写引擎）导出前需检查 UnfinishedItem 中是否存在 blocking 级别记录
+  - 后续 US-029（未完成项面板 UI）需读取本接口的数据在前端展示
+---
+
+## 2026-05-26 21:00 — US-011
+- 创建了 `app/models/writeback.py`：WriteBackOperation、WriteBackResult Pydantic 模型
+- 创建了 `app/services/docx_writer.py`：DOCX 内容回写引擎，支持三种策略和完整的备份/验证流程
+- 更新了 `app/api/documents.py`：新增 POST /api/documents/{id}/writeback 和 GET /api/documents/{id}/download 端点
+- 回写策略：
+  1. replace：保留第一个 w:r 的 w:rPr 样式，替换 w:t 文本，移除其余 w:r
+  2. append：在 w:p 末尾追加新 w:r，通过 copy.deepcopy 继承段落 w:rPr 样式
+  3. cell_fill：定位 w:tc 内第一个 w:p，执行 replace 操作
+- location_path 解析：根据 XPath 风格路径（如 /w:document/w:body/w:p[3]）在 lxml 树中定位目标元素
+- 备份：回写前自动复制原始文件到 backups/{doc_id}/{timestamp}_{filename}
+- 验证：回写后重新解包 ZIP、解析 document.xml、检查 w:body 结构完整性
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - download_file_by_url 返回原始 DOCX 字节，需通过 zipfile 解包后才能修改 document.xml
+  - 修改后的 DOCX 重新打包时需保留所有非 document.xml 的 ZIP 条目（如 [Content_Types].xml、styles.xml、页眉页脚等）
+  - w:t 元素需设置 xml:space="preserve" 属性以保留前后空格
+  - 后续 US-017（AIRevision 生成引擎）生成的修订内容可直接通过本引擎的 writeback 端点写回模板
+  - 后续 US-019（DOCX 最终导出）需要从本引擎复用 write_back_docx 核心函数，批量应用 AIRevision
+---
+

@@ -169,7 +169,7 @@
         "Typecheck 通过"
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -186,8 +186,8 @@
         "Typecheck 通过"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "回写引擎基于 lxml 操作 document.xml，根据 location_path 定位目标元素后应用策略；下载端点返回 application/vnd.openxmlformats-officedocument.wordprocessingml.document MIME 类型"
     },
     {
       "id": "US-012",

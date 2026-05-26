@@ -1,16 +1,19 @@
-"""文档 API — 文件上传、解包、解析和查询端点。"""
+"""文档 API — 文件上传、解包、解析、回写和下载端点。"""
 
 from fastapi import APIRouter, UploadFile, File
+from fastapi.responses import Response
 
 from app.services.document_service import process_docx_upload, parse_and_store_document, detect_and_store_sections
 from app.services.template_slot_service import generate_template_slots
 from app.services.llm_classifier_service import classify_template_slots
 from app.services.unfinished_item_service import generate_unfinished_items
+from app.services.docx_writer import apply_writeback
 from app.models.document import DocumentResponse, UploadError
 from app.models.document_node import ParseResult
 from app.models.section import SectionDetectionResult
 from app.models.template_slot import SlotGenerationResult
 from app.models.unfinished_item import UnfinishedItemGenerationResult
+from app.models.writeback import WriteBackOperation, WriteBackResult
 from app.gateway.supabase_gateway import SupabaseGateway
 
 documents_router = APIRouter(prefix="/documents", tags=["documents"])
@@ -79,3 +82,38 @@ async def get_document_unfinished(doc_id: str):
     """查询指定文档的所有 UnfinishedItem 记录，按 risk_level 降序排列。"""
     gw = SupabaseGateway()
     return gw.get_unfinished_items(doc_id)
+
+
+@documents_router.post("/{doc_id}/writeback", response_model=WriteBackResult)
+async def writeback_document(doc_id: str, operations: list[WriteBackOperation]):
+    """对文档应用回写操作（replace、append、cell_fill），包含备份和验证。
+
+    回写前自动复制原始模板到 Supabase Storage 作为备份，
+    回写后重新解包文件验证 document.xml 结构完整性。
+    """
+    return await apply_writeback(doc_id, operations)
+
+
+@documents_router.get("/{doc_id}/download")
+async def download_document(doc_id: str):
+    """下载回写后的 .docx 文件。"""
+    gw = SupabaseGateway()
+    doc = gw.get_document(doc_id)
+    if not doc:
+        return Response(status_code=404, content="文档不存在")
+
+    file_path = doc.get("file_path", "")
+    if not file_path:
+        return Response(status_code=404, content="文档缺少 file_path")
+
+    try:
+        file_bytes = gw.download_file_by_url(file_path)
+    except Exception:
+        return Response(status_code=500, content="文件下载失败")
+
+    filename = doc.get("name", f"{doc_id}.docx")
+    return Response(
+        content=file_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
