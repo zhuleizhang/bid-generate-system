@@ -127,3 +127,32 @@ class SupabaseGateway:
         )
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items
+
+    # ── Template Slots ──────────────────────────────────────────
+
+    def insert_template_slots(self, slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """批量插入 TemplateSlot 记录。"""
+        all_inserted: list[dict[str, Any]] = []
+        batch_size = 100
+        for i in range(0, len(slots), batch_size):
+            batch = slots[i : i + batch_size]
+            result = self.client.table("template_slots").insert(batch).execute()
+            items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+            all_inserted.extend(items)
+        return all_inserted
+
+    def delete_template_slots(self, document_id: str) -> None:
+        """删除指定文档的所有 TemplateSlot 记录。"""
+        self.client.table("template_slots").delete().eq("document_id", document_id).execute()
+
+    def get_template_slots(self, document_id: str) -> list[dict[str, Any]]:
+        """查询指定文档的所有 TemplateSlot 记录。"""
+        result = (
+            self.client.table("template_slots")
+            .select("*")
+            .eq("document_id", document_id)
+            .order("created_at")
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items

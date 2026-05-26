@@ -3,9 +3,11 @@
 from fastapi import APIRouter, UploadFile, File
 
 from app.services.document_service import process_docx_upload, parse_and_store_document, detect_and_store_sections
+from app.services.template_slot_service import generate_template_slots
 from app.models.document import DocumentResponse, UploadError
 from app.models.document_node import ParseResult
 from app.models.section import SectionDetectionResult
+from app.models.template_slot import SlotGenerationResult
 from app.gateway.supabase_gateway import SupabaseGateway
 
 documents_router = APIRouter(prefix="/documents", tags=["documents"])
@@ -41,3 +43,16 @@ async def get_document_sections(doc_id: str):
     """查询指定文档的章节结构树。"""
     gw = SupabaseGateway()
     return gw.get_section_contents(doc_id)
+
+
+@documents_router.post("/{doc_id}/generate-slots", response_model=SlotGenerationResult)
+async def generate_document_slots(doc_id: str):
+    """为文档生成 TemplateSlot 可填充位置，识别占位符、空段落、表格单元格等。"""
+    return await generate_template_slots(doc_id)
+
+
+@documents_router.get("/{doc_id}/slots")
+async def get_document_slots(doc_id: str):
+    """查询指定文档的所有 TemplateSlot 记录。"""
+    gw = SupabaseGateway()
+    return gw.get_template_slots(doc_id)

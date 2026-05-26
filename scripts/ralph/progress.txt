@@ -24,7 +24,7 @@
 - DOCX vMerge 的 val 属性可能缺失（部分工具生成），需根据同列上方是否已有 restart 来推断当前单元格是否为 continue
 
 ================================================================================
-CURRENT: US-007 — 识别表格结构与合并单元格
+CURRENT: US-008 — 生成 TemplateSlot 可填充位置
 STATUS:   done
 ================================================================================
 
@@ -35,7 +35,7 @@ US-004 |   done  | DOCX 上传、解包与存储 API
 US-005 |   done  | 构建 DOCX 文档结构树
 US-006 |   done  | 识别章节与标题层级
 US-007 |   done  | 识别表格结构与合并单元格
-US-008 | pending | 生成 TemplateSlot 可填充位置
+US-008 |   done  | 生成 TemplateSlot 可填充位置
 US-009 | pending | LLM 辅助判断章节和表格语义类型
 US-010 | pending | 生成未完成项（UnfinishedItem）
 US-011 | pending | 内容回写引擎与 Word/WPS 兼容验证
@@ -181,3 +181,20 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 后续 US-008（TemplateSlot）需读取表格节点的 merge_map 来判断单元格是否合并
 ---
 
+
+## 2026-05-26 18:30 — US-008
+- 创建了 `app/models/template_slot.py`：TemplateSlotResponse 和 SlotGenerationResult Pydantic 模型
+- 创建了 `app/services/template_slot_service.py`：6 种 slot 检测策略（占位符/提示词/空段落/空表格单元格/章节标题/章节末）
+- 在 `app/gateway/supabase_gateway.py` 中新增 insert_template_slots、delete_template_slots、get_template_slots 方法
+- 在 `app/api/documents.py` 中新增 POST /api/documents/{id}/generate-slots 和 GET /api/documents/{id}/slots 端点
+- 占位符检测覆盖 6 种模式：[...]、【...】、{{...}}、（请填写...）、(...)、<...>
+- 置信度分级：占位符 ≥0.92、空段落 ≥0.72、提示词 ≥0.65、空表格单元格 ≥0.72、章节标题 0.80、章节末 0.40
+- 表格单元格向上追溯父节点以判断是否表头行、从列标题推断 expected_content_type
+- mypy + tsc 均通过
+- **供后续迭代参考的经验：**
+  - TemplateSlot 生成依赖于 section_contents 表（由 US-006 写入），需要 node_id → section_path 的映射
+  - 表格单元格的 section_id 继承自所在章节，通过 node_map 向上追溯父节点链可获取表格和表头信息
+  - 占位符检测优先级最高（continue 跳过后续检测），避免同一段落被重复标记为多种 slot_type
+  - fill_strategy 与 slot_type 的对应关系：placeholder→replace, paragraph→replace/append, table_cell→cell_fill, heading_section→section_append, section_append→section_append
+  - 后续 US-009 将通过 LLM 细化 expected_content_type，当前版本仅做关键词和占位符提取
+---
