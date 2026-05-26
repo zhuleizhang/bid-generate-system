@@ -58,7 +58,7 @@ US-027 |   done  | AIRevision 侧边栏 — 列表与单条操作
 US-028 |   done  | AIRevision 批量操作
 US-029 |   done  | 未完成项面板与补充资料流程
 US-030 |   done  | 响应性检查结果页
-US-031 | pending | DOCX 导出流程 UI
+US-031 |   done  | DOCX 导出流程 UI
 US-032 | pending | 文档切片与元数据提取
 US-033 | pending | 向量嵌入生成与 pgvector 存储
 US-034 | pending | RAG 混合检索服务
@@ -707,4 +707,33 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 统计卡片的 Col span 按卡片数量动态计算（24 / statsCards.length），适配不同屏幕尺寸
   - eslint `react-hooks/set-state-in-effect` 规则要求 useEffect 中不能直接调用包含 setState 的 useCallback，需内联 async 逻辑
   - 后续 US-031（DOCX 导出流程 UI）可直接复用本页面的检查结果，在导出前判断 has_blocking_issues
+---
+
+## 2026-05-26 — US-031
+- 在 `backend/app/api/exports.py` 中新增 GET /api/projects/{project_id}/exports 端点，返回导出历史记录列表
+- 创建了 `frontend/src/lib/types/export.ts`：ExportResult、ExportRecordResponse 类型和常量映射
+- 创建了 `frontend/src/components/ExportModal.tsx`：完整的导出流程 Modal
+  - 自动选择唯一的投标模板（通过 useMemo 派生 effectiveDocId）
+  - 导出前自动执行响应性检查（POST /review）
+  - 检查摘要展示：总要求数、覆盖率、PASS/FAIL/WARNING 计数
+  - blocking 阻断：Alert 展示失败的强制要求列表，禁用导出按钮
+  - WARNING 提示：Alert 展示待确认项，用户可继续导出
+  - 全部通过：显示成功 Alert，确认导出
+  - 导出中 Loading 态（"正在合成文档..."）
+  - 导出成功 → 自动触发浏览器下载（<a> 编程式点击）+ Result 成功页
+  - 409 阻断 → Result 错误页展示 blocking 原因列表
+  - 失败 → Result 错误页展示错误信息，支持重试
+- 更新了 `frontend/src/app/projects/[id]/page.tsx`：
+  - 操作栏新增导出按钮（type=primary, ExportOutlined 图标）
+  - 新增"导出记录"Tab：List 展示历史记录（导出时间、修订数、文件大小、下载按钮）
+  - Tab 切换时自动加载导出历史
+  - 集成 ExportModal 组件
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - 导出流程分 5 步：选择文档 → 响应检查 → 审查结果 → 导出中 → 完成
+  - eslint `react-hooks/set-state-in-effect` 不允许在 useEffect 中同步 setState，用 useMemo 派生值替代
+  - 浏览器下载通过创建隐藏 `<a>` 元素 + `click()` 实现，无需 iframe
+  - 409 阻断响应的 detail 是 JSON 对象（含 blocked_by 数组），前端需判断 typeof detail === 'object' 来提取
+  - 导出 Modal 使用 destroyOnClose 确保每次打开状态重置
+  - 后续 US-032（文档切片与元数据提取）是知识库功能，需要新的后端端点和前端页面
 ---
