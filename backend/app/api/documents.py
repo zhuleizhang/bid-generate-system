@@ -378,13 +378,91 @@ def _highlight_new_section(
         parent.insert(idx + 1, wrapper)
 
 
+def _inject_unfinished_highlights(
+    tree: lxml_html.HtmlElement,
+    unfinished_items: list[dict],
+    document_nodes: list[dict],
+) -> None:
+    """在 HTML 预览中为未完成项注入醒目标记（红色虚线边框 + 警告图标）。
+
+    通过文本匹配将 HTML 元素与 document_nodes 关联，
+    然后根据未完成项信息注入警告标记和 data 属性。
+    """
+    # 构建 document_node 文本 → node_id 的映射
+    node_text_map: dict[str, str] = {}
+    for node in document_nodes:
+        text = (node.get("text") or "").strip()
+        if text and len(text) >= 2:
+            node_text_map[text] = node["id"]
+
+    # 构建 node_id → UnfinishedItem 映射
+    unfinished_map: dict[str, dict] = {}
+    for item in unfinished_items:
+        nid = item.get("node_id", "")
+        if nid:
+            if nid not in unfinished_map:
+                unfinished_map[nid] = item
+            else:
+                # 同节点多个未完成项，保留风险等级更高的
+                existing = unfinished_map[nid]
+                risk_order = {"blocking": 0, "high": 1, "medium": 2, "low": 3}
+                if risk_order.get(item.get("risk_level", "low"), 99) < risk_order.get(existing.get("risk_level", "low"), 99):
+                    unfinished_map[nid] = item
+
+    if not unfinished_map:
+        return
+
+    # 遍历 HTML 元素，匹配并注入标记
+    for elem in tree.iter("p", "td", "th", "li"):
+        elem_text = (elem.text_content() or "").strip()
+        if not elem_text or len(elem_text) < 2:
+            continue
+
+        node_id = node_text_map.get(elem_text)
+        if not node_id:
+            for node_text, nid in node_text_map.items():
+                if len(node_text) >= 4 and node_text in elem_text:
+                    node_id = nid
+                    break
+
+        if not node_id or node_id not in unfinished_map:
+            continue
+
+        item = unfinished_map[node_id]
+        item_id = item.get("id", "")
+        risk_level = item.get("risk_level", "low")
+        reason = item.get("reason", "")
+        item_type = item.get("item_type", "")
+
+        # 添加 CSS 类和 data 属性
+        current_class = elem.get("class", "")
+        new_class = f"{current_class} unfinished-item-highlight".strip()
+        elem.set("class", new_class)
+        elem.set("data-unfinished-id", item_id)
+        elem.set("data-unfinished-risk", risk_level)
+        elem.set("data-unfinished-type", item_type)
+
+        # 在元素前插入警告图标 span
+        warning_span = lxml_html.Element("span")
+        warning_span.set("class", "unfinished-warning-icon")
+        warning_span.set("data-unfinished-id", item_id)
+        warning_span.text = "⚠"
+        warning_span.set("title", reason)
+
+        parent = elem.getparent()
+        if parent is not None:
+            idx = list(parent).index(elem)
+            parent.insert(idx, warning_span)
+
+
 @documents_router.get("/{doc_id}/preview")
 async def preview_document(doc_id: str):
-    """将 DOCX 转为 HTML 预览，含章节结构和 AIRevision 高亮标记。
+    """将 DOCX 转为 HTML 预览，含章节结构、AIRevision 高亮和未完成项标记。
 
     从 Supabase Storage 下载原始 DOCX 文件，使用 mammoth 转换为 HTML，
-    保留标题层级、加粗、列表和表格等基本格式。同时返回文档的章节树数据
-    和 AIRevision 列表，并在 HTML 中注入修订高亮标记供前端渲染。
+    保留标题层级、加粗、列表和表格等基本格式。同时返回文档的章节树数据、
+    AIRevision 列表和未完成项列表，并在 HTML 中注入修订高亮标记和
+    未完成项警告标记供前端渲染。
     """
     gw = SupabaseGateway()
 
@@ -418,16 +496,19 @@ async def preview_document(doc_id: str):
     # 获取章节结构
     sections = gw.get_section_contents(doc_id)
 
-    # 获取 AIRevision 和文档节点数据
+    # 获取 AIRevision 和 document_nodes 数据
     ai_revisions_raw = gw.get_ai_revisions(doc_id)
-    # 将 Supabase 返回的行数据转为 dict 列表（兼容 mypy）
     ai_revisions: list[dict] = [dict(r) for r in ai_revisions_raw]
+
+    # 获取未完成项数据
+    unfinished_raw = gw.get_unfinished_items(doc_id)
+    unfinished_items: list[dict] = [dict(u) for u in unfinished_raw]
 
     document_nodes_raw = gw.get_document_nodes(doc_id)
     document_nodes: list[dict] = [dict(n) for n in document_nodes_raw]
 
-    # 在 HTML 中为各章节标题注入锚点 ID，同时注入 AIRevision 高亮标记
-    if sections or ai_revisions:
+    # 在 HTML 中为各章节标题注入锚点 ID，同时注入 AIRevision 高亮和未完成项标记
+    if sections or ai_revisions or unfinished_items:
         try:
             tree = lxml_html.fromstring(html_content)
 
@@ -448,6 +529,10 @@ async def preview_document(doc_id: str):
             if ai_revisions:
                 _inject_revision_highlights(tree, ai_revisions, document_nodes)
 
+            # 3) 未完成项标记注入
+            if unfinished_items:
+                _inject_unfinished_highlights(tree, unfinished_items, document_nodes)
+
             html_content = lxml_html.tostring(tree, encoding="unicode", method="html")
         except Exception:
             pass  # 后处理失败不阻塞预览
@@ -458,6 +543,7 @@ async def preview_document(doc_id: str):
         "html": html_content,
         "sections": sections,
         "ai_revisions": ai_revisions,
+        "unfinished_items": unfinished_items,
         "warnings": messages,
     }
 

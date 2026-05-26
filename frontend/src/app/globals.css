@@ -122,3 +122,55 @@ body {
   outline: 1px dashed #ff4d4f;
   outline-offset: 2px;
 }
+
+/* 未完成项高亮样式 */
+
+.unfinished-item-highlight {
+  border: 1px dashed #ff4d4f !important;
+  border-radius: 4px;
+  padding: 2px 6px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.unfinished-item-highlight:hover {
+  background: #fff1f0;
+}
+
+/* 阻断级别红色背景 */
+.unfinished-item-highlight[data-unfinished-risk="blocking"] {
+  background: #fff1f0;
+  border: 2px dashed #ff4d4f !important;
+}
+
+/* 高风险红色虚线 */
+.unfinished-item-highlight[data-unfinished-risk="high"] {
+  border-color: #ff7a45 !important;
+}
+
+/* 中风险橙色虚线 */
+.unfinished-item-highlight[data-unfinished-risk="medium"] {
+  border-color: #faad14 !important;
+}
+
+/* 低风险蓝色虚线 */
+.unfinished-item-highlight[data-unfinished-risk="low"] {
+  border-color: #1677ff !important;
+}
+
+/* 未完成项警告图标 */
+.unfinished-warning-icon {
+  display: inline-block;
+  font-size: 14px;
+  color: #ff4d4f;
+  margin-right: 4px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+/* 高亮闪烁动画 */
+@keyframes unfinished-flash {
+  0%, 100% { outline-color: #ff4d4f; }
+  50% { outline-color: transparent; }
+}

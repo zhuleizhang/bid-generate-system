@@ -197,6 +197,24 @@ class SupabaseGateway:
         items.sort(key=lambda x: risk_order.get(x.get("risk_level", "low"), 99))
         return items
 
+    def get_unfinished_item(self, item_id: str) -> dict[str, Any] | None:
+        """按 ID 查询单条 UnfinishedItem 记录。"""
+        result = self.client.table("unfinished_items").select("*").eq("id", item_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else None
+
+    def update_unfinished_item(self, item_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        """更新单条 UnfinishedItem 记录，返回更新后的数据。"""
+        result = self.client.table("unfinished_items").update(data).eq("id", item_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else {}
+
+    def get_template_slot(self, slot_id: str) -> dict[str, Any] | None:
+        """按 ID 查询单条 TemplateSlot 记录。"""
+        result = self.client.table("template_slots").select("*").eq("id", slot_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else None
+
     # ── Model Call Logs ─────────────────────────────────────────
 
     def insert_model_call_log(self, data: dict[str, Any]) -> dict[str, Any]:

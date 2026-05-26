@@ -12,6 +12,7 @@ import {
   message,
   Popover,
   Tag,
+  Tabs,
   Descriptions,
   Divider,
 } from "antd";
@@ -23,6 +24,7 @@ import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { ProjectFileItem } from "@/lib/types/project_file";
 import type { AIRevision } from "@/lib/types/ai_revision";
+import type { UnfinishedItem } from "@/lib/types/unfinished_item";
 import {
   REVISION_TYPE_LABELS,
   REVISION_TYPE_COLORS,
@@ -34,6 +36,7 @@ import {
 import ChapterTree from "@/components/ChapterTree";
 import type { SectionItem } from "@/components/ChapterTree";
 import RevisionSidebar from "@/components/RevisionSidebar";
+import UnfinishedPanel from "@/components/UnfinishedPanel";
 
 const { Title, Text } = Typography;
 
@@ -43,6 +46,7 @@ interface PreviewData {
   html: string;
   sections: SectionItem[];
   ai_revisions: AIRevision[];
+  unfinished_items: UnfinishedItem[];
   warnings: string[];
 }
 
@@ -59,6 +63,7 @@ export default function PreviewPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<string>("revisions");
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
   // Popover 状态
@@ -150,6 +155,23 @@ export default function PreviewPage() {
     const anchor = document.getElementById(`sec-${sectionId}`);
     if (anchor && previewContainerRef.current) {
       anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
+  // 点击未完成项时：切换到 AI 修订 tab 并滚动到对应高亮位置
+  const handleUnfinishedLocate = useCallback((item: UnfinishedItem) => {
+    const highlightEl = previewContainerRef.current?.querySelector(
+      `[data-unfinished-id="${item.id}"]`,
+    ) as HTMLElement | null;
+    if (highlightEl) {
+      highlightEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      // 闪烁高亮效果
+      const origOutline = highlightEl.style.outline;
+      highlightEl.style.outline = "3px solid #ff4d4f";
+      highlightEl.style.transition = "outline 0.3s";
+      setTimeout(() => {
+        highlightEl.style.outline = origOutline;
+      }, 1500);
     }
   }, []);
 
@@ -390,10 +412,10 @@ export default function PreviewPage() {
             ) : null}
           </Card>
 
-          {/* 右侧 AIRevision 侧边栏 */}
-          {previewData?.ai_revisions && previewData.ai_revisions.length > 0 && (
+          {/* 右侧侧边栏：AI 修订列表 + 未完成项 */}
+          {(previewData?.ai_revisions && previewData.ai_revisions.length > 0) ||
+          (previewData?.unfinished_items && previewData.unfinished_items.length > 0) ? (
             <Card
-              title="AI 修订列表"
               size="small"
               style={{
                 width: 360,
@@ -409,12 +431,41 @@ export default function PreviewPage() {
                 },
               }}
             >
-              <RevisionSidebar
-                revisions={previewData.ai_revisions}
-                onStatusChange={handleRevisionRefresh}
+              <Tabs
+                activeKey={sidebarTab}
+                onChange={setSidebarTab}
+                size="small"
+                items={[
+                  previewData?.ai_revisions && previewData.ai_revisions.length > 0
+                    ? {
+                        key: "revisions",
+                        label: `AI 修订 (${previewData.ai_revisions.length})`,
+                        children: (
+                          <RevisionSidebar
+                            revisions={previewData.ai_revisions}
+                            onStatusChange={handleRevisionRefresh}
+                          />
+                        ),
+                      }
+                    : null,
+                  previewData?.unfinished_items && previewData.unfinished_items.length > 0
+                    ? {
+                        key: "unfinished",
+                        label: `未完成项 (${previewData.unfinished_items.filter((u) => u.status === "open").length})`,
+                        children: (
+                          <UnfinishedPanel
+                            items={previewData.unfinished_items}
+                            onStatusChange={handleRevisionRefresh}
+                            onItemLocate={handleUnfinishedLocate}
+                          />
+                        ),
+                      }
+                    : null,
+                ].filter(Boolean) as { key: string; label: string; children: React.ReactNode }[]}
+                style={{ marginTop: -8 }}
               />
             </Card>
-          )}
+          ) : null}
         </div>
       )}
     </div>
