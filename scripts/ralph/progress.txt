@@ -24,7 +24,7 @@
 - DOCX vMerge 的 val 属性可能缺失（部分工具生成），需根据同列上方是否已有 restart 来推断当前单元格是否为 continue
 
 ================================================================================
-CURRENT: US-028 — AIRevision 批量操作
+CURRENT: US-029 — 未完成项面板与补充资料流程
 STATUS:   done
 ================================================================================
 
@@ -56,7 +56,7 @@ US-025 |   done  | 章节树导航组件
 US-026 |   done  | HTML 预览中的 AIRevision 高亮展示
 US-027 |   done  | AIRevision 侧边栏 — 列表与单条操作
 US-028 |   done  | AIRevision 批量操作
-US-029 | pending | 未完成项面板与补充资料流程
+US-029 |   done  | 未完成项面板与补充资料流程
 US-030 | pending | 响应性检查结果页
 US-031 | pending | DOCX 导出流程 UI
 US-032 | pending | 文档切片与元数据提取
@@ -653,4 +653,39 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 前端 Set 类型的状态更新需通过 `setSelectedIds(prev => new Set(prev))` 模式确保 React 检测到变化
   - Checkbox indeterminate 属性用于部分选中状态（someSelected && !allSelected）
   - 后续 US-029（未完成项面板）可参考本故事的批量确认弹窗 + 结果汇总模式
+---
+
+## 2026-05-26 — US-029
+- 创建了 `backend/app/api/unfinished.py`：UnfinishedItem 操作 API
+  - `GET /api/unfinished/{item_id}` — 查询单条未完成项
+  - `PATCH /api/unfinished/{item_id}/status` — 状态变更（resolved/ignored），ignored 时需填写忽略原因
+  - `POST /api/unfinished/{item_id}/manual-fill` — 手动填写内容后创建 accepted AIRevision，标记 item 为 resolved
+  - `POST /api/unfinished/{item_id}/regenerate` — 上传补充资料（PDF/Word/TXT），解析为文本后调用 LLM 重新生成 AIRevision，标记 item 为 resolved
+- 更新了 `backend/app/api/documents.py`：预览端点新增
+  - `_inject_unfinished_highlights()` — 通过文本匹配在 HTML 预览中注入未完成项标记（红色虚线边框 + 警告图标 + data-* 属性）
+  - 预览响应新增 `unfinished_items` 字段
+- 在 `backend/app/gateway/supabase_gateway.py` 中新增 3 个方法：get_unfinished_item、update_unfinished_item、get_template_slot
+- 在 `backend/app/api/router.py` 中注册 unfinished_router
+- 创建了 `frontend/src/lib/types/unfinished_item.ts`：UnfinishedItem 接口和 4 组常量映射（风险等级/状态/类型标签和颜色）
+- 创建了 `frontend/src/components/UnfinishedPanel.tsx`：未完成项面板组件
+  - 按 risk_level 分组展示（blocking→high→medium→low），左侧颜色条区分
+  - 每条显示：风险等级标签、状态标签、section_path、原因、影响、建议动作
+  - 筛选：按风险等级多选 + 按 item_type 多选（Select 组件）
+  - 四种操作按钮：标记已解决、手动填写（Modal+TextArea→创建 AIRevision）、补充资料后重新生成（Dragger 上传→LLM 生成→创建 AIRevision）、忽略（填写原因 Modal）
+  - 点击未完成项自动滚动到 HTML 预览中的对应高亮位置并闪烁提示
+  - 忽略原因通过 metadata JSONB 存储，列表项中展示
+- 更新了 `frontend/src/app/projects/[id]/preview/page.tsx`：
+  - 侧边栏从单一 RevisionSidebar 改为 Tabs（AI 修订 / 未完成项）
+  - 新增 `handleUnfinishedLocate` 回调：查找 data-unfinished-id 元素并滚动+闪烁
+  - PreviewData 接口新增 `unfinished_items` 字段
+- 更新了 `frontend/src/app/globals.css`：未完成项高亮样式（红色虚线边框、风险等级颜色区分、警告图标、悬停效果、闪烁动画）
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - 未完成项在预览 HTML 中的标记与 AIRevision 标记共用同一套匹配逻辑（node_text_map 通过文本匹配），但使用不同的 data-* 属性区分
+  - metadata JSONB 字段用于扩展存储（如 ignore_reason），前端通过 Record<string, unknown> 类型读取
+  - UnfinishedItem 状态变更和手动填写均写入 audit_logs，与 AIRevision 操作日志保持一致
+  - regenerate 端点解析补充文件时直接使用 pdfplumber/docx 内联处理，不依赖文档上传流程
+  - Tabs 组件用于切换侧边栏面板（AI 修订/未完成项），filter(Boolean) 确保只有有数据的 Tab 才显示
+  - 后续 US-030（响应性检查结果页）可参考本故事的 HTML 注入+联动高亮模式
+  - 后续 US-031（DOCX 导出流程 UI）可直接复用本故事的 Modal + 操作按钮模式
 ---
