@@ -11,15 +11,19 @@
 - 前端使用 Next.js 16 App Router + Ant Design + @ant-design/nextjs-registry，布局采用 Ant Design Layout 组件（Sider + Header + Content）
 - 前端 typecheck 使用 `npx tsc --noEmit`，lint 使用 `npx eslint`（Next.js 16 中 lint 脚本改为了直接调用 eslint）
 - Node 版本要求 >= 20.9.0（Next.js 16 要求），使用 nvm use v20.19.5 切换
+- Supabase migration 文件格式：YYYYMMDDHHMMSS_description.sql，放在 supabase/migrations/ 目录
+- 数据库 Schema 使用 CHECK 约束枚举值（如 document_type IN ('bid_template', 'tender_doc', ...)），不使用 ENUM 类型
+- 所有表的 updated_at 通过统一的 trigger_set_updated_at() 触发器自动维护，不依赖 ORM
+- JSONB 字段用于灵活扩展（metadata、related_requirement_ids），默认值使用 '[]' 或 '{}'
 
 ================================================================================
-CURRENT: US-003 — 创建完整数据库 Schema（所有表）
+CURRENT: US-004 — DOCX 上传、解包与存储 API
 STATUS:   pending
 ================================================================================
 
 US-001 |   done  | 初始化 FastAPI 后端项目结构
 US-002 |   done  | 初始化 Next.js 前端项目结构
-US-003 | pending | 创建完整数据库 Schema（所有表）
+US-003 |   done  | 创建完整数据库 Schema（所有表）
 US-004 | pending | DOCX 上传、解包与存储 API
 US-005 | pending | 构建 DOCX 文档结构树
 US-006 | pending | 识别章节与标题层级
@@ -84,4 +88,23 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - Next.js 16 的 lint 脚本是 `eslint` 而非之前的 `next lint`
   - Ant Design 在 Next.js App Router 中需要 @ant-design/nextjs-registry 包裹，且所有使用 Ant Design 组件的页面/组件需标记 'use client'
   - frontend/.gitignore 默认忽略 .env*，需添加 !.env.example 例外才能提交
+---
+
+## 2026-05-26 12:00 — US-003
+- 创建了 supabase/migrations/20260526000000_initial_schema.sql，含全部 18 张表
+- E0（5 张）：documents, document_nodes, template_slots, unfinished_items, model_call_logs
+- E1（10 张）：projects, requirements, bid_tasks, section_contents, ai_revisions, edit_diffs, audit_logs, task_runs, export_records, document_versions
+- E2（3 张）：document_chunks (含 pgvector embedding), experiences, citations
+- 所有表含 id UUID PK、created_at/updated_at 时间戳，自动 updated_at 触发器
+- 外键约束正确设置：自引用（document_nodes.parent_node_id）、跨表引用（template_slots.node_id 等）
+- 启用 pgvector 扩展，document_chunks.embedding 为 VECTOR(1536) 类型
+- 关键 CHECK 约束：document_type、node_type、slot_type、fill_strategy、risk_level、revision_type、status 等枚举值
+- 索引覆盖所有常用查询字段（project_id、document_id、node_id 等）
+- mypy、tsc、eslint 全部通过
+- **供后续迭代参考的经验：**
+  - Supabase migration 命名格式：YYYYMMDDHHMMSS_description.sql
+  - migration 放在 supabase/migrations/ 目录（项目根级别，非 backend/ 下）
+  - documents.project_id 的外键在 projects 表创建后通过 ALTER TABLE 补上（因创建顺序问题）
+  - 所有含 updated_at 的表通过 DO 循环自动创建触发器，无需逐个手写
+  - pgvector 扩展使用 CREATE EXTENSION IF NOT EXISTS 以防重复安装报错
 ---

@@ -50,8 +50,8 @@
         "Typecheck 通过"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已创建 supabase/migrations/20260526000000_initial_schema.sql，含 18 张表和 pgvector 扩展"
     },
     {
       "id": "US-004",
