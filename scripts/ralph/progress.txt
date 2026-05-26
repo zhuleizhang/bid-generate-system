@@ -15,16 +15,18 @@
 - 数据库 Schema 使用 CHECK 约束枚举值（如 document_type IN ('bid_template', 'tender_doc', ...)），不使用 ENUM 类型
 - 所有表的 updated_at 通过统一的 trigger_set_updated_at() 触发器自动维护，不依赖 ORM
 - JSONB 字段用于灵活扩展（metadata、related_requirement_ids），默认值使用 '[]' 或 '{}'
+- DOCX 文件本质是 ZIP 压缩包，使用 Python 标准库 zipfile 解包即可提取 word/document.xml、styles.xml、页眉页脚等 XML 部件
+- Supabase Storage 文件上传需在 upload() 的第三个参数中指定 content-type，否则默认 application/octet-stream
 
 ================================================================================
-CURRENT: US-004 — DOCX 上传、解包与存储 API
+CURRENT: US-005 — 构建 DOCX 文档结构树
 STATUS:   pending
 ================================================================================
 
 US-001 |   done  | 初始化 FastAPI 后端项目结构
 US-002 |   done  | 初始化 Next.js 前端项目结构
 US-003 |   done  | 创建完整数据库 Schema（所有表）
-US-004 | pending | DOCX 上传、解包与存储 API
+US-004 |   done  | DOCX 上传、解包与存储 API
 US-005 | pending | 构建 DOCX 文档结构树
 US-006 | pending | 识别章节与标题层级
 US-007 | pending | 识别表格结构与合并单元格
@@ -107,4 +109,18 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - documents.project_id 的外键在 projects 表创建后通过 ALTER TABLE 补上（因创建顺序问题）
   - 所有含 updated_at 的表通过 DO 循环自动创建触发器，无需逐个手写
   - pgvector 扩展使用 CREATE EXTENSION IF NOT EXISTS 以防重复安装报错
+---
+
+## 2026-05-26 14:30 — US-004
+- 创建了 Supabase 网关层 `app/gateway/supabase_gateway.py`：封装 Storage 上传/下载和 Database CRUD
+- 创建了文档模型 `app/models/document.py`：DocumentResponse 和 UploadError Pydantic schemas
+- 创建了文档服务 `app/services/document_service.py`：DOCX 解包逻辑（zipfile 提取 document.xml、styles.xml、numbering.xml、页眉页脚）
+- 创建了文档 API `app/api/documents.py`：POST /api/documents/upload 端点
+- 在 `app/api/router.py` 中注册了 documents_router
+- **供后续迭代参考的经验：**
+  - Supabase Python SDK 的 `result.data` 返回 `list[JSON] | list[dict[str, Any]]` 联合类型，需要 `# type: ignore[assignment]` 消除 mypy 误报
+  - DOCX 文件本质是 ZIP 压缩包，使用 Python 标准库 `zipfile` 即可解包，无需额外依赖
+  - 页眉页脚 XML 部件命名不规则（如 `word/header1.xml`、`word/footer2.xml`），通过文件名包含 `header`/`footer` 关键词模糊匹配
+  - Supabase Storage 文件上传需要 content-type 选项，否则默认 application/octet-stream
+  - 后续 US-005（构建文档结构树）将使用本故事提取的 XML 部件（word/document.xml）作为输入
 ---
