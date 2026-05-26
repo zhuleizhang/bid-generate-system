@@ -336,6 +336,26 @@ class SupabaseGateway:
         """删除指定项目的所有标书任务（用于重新拆解）。"""
         self.client.table("bid_tasks").delete().eq("project_id", project_id).execute()
 
+    # ── Export Records ────────────────────────────────────────────
+
+    def insert_export_record(self, data: dict[str, Any]) -> dict[str, Any]:
+        """插入一条导出记录。"""
+        result = self.client.table("export_records").insert(data).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else {}
+
+    def get_export_records(self, project_id: str) -> list[dict[str, Any]]:
+        """查询指定项目的所有导出记录，按时间倒序。"""
+        result = (
+            self.client.table("export_records")
+            .select("*")
+            .eq("project_id", project_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items
+
     def get_documents_by_project(self, project_id: str) -> list[dict[str, Any]]:
         """查询指定项目下的所有文档记录。"""
         result = (

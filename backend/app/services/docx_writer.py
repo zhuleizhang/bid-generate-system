@@ -1,9 +1,10 @@
 """DOCX 内容回写引擎 — 将文本按策略写回原始 DOCX 模板的正确位置。
 
-支持三种策略：
+支持四种策略：
 - replace：替换目标段落内所有 w:r/w:t 的文本，保留 w:rPr 原始样式
 - append：在目标段落末尾追加新 w:r 元素，继承段落样式
 - cell_fill：定位 w:tc 内段落，替换或追加文本
+- section_append：在目标段落后插入新 w:p 段落
 """
 
 import copy
@@ -114,6 +115,33 @@ def _apply_replace(p_el: etree._Element, new_text: str) -> None:
     new_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
 
 
+def _apply_section_append(p_el: etree._Element, new_text: str) -> None:
+    """在目标 w:p 之后插入新的 w:p 段落。"""
+    parent = p_el.getparent()
+    if parent is None:
+        return
+
+    new_p = etree.Element(_ns("p"))
+    # 继承目标段落的 pPr 样式
+    pPr = p_el.find(_ns("pPr"))
+    if pPr is not None:
+        new_p.append(copy.deepcopy(pPr))
+
+    new_r = etree.SubElement(new_p, _ns("r"))
+    # 继承 rPr 样式
+    rPr = _get_first_rPr(p_el)
+    if rPr is not None:
+        new_r.append(copy.deepcopy(rPr))
+
+    new_t = etree.SubElement(new_r, _ns("t"))
+    new_t.text = new_text
+    new_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+
+    # 插入到目标段落之后
+    idx = list(parent).index(p_el)
+    parent.insert(idx + 1, new_p)
+
+
 def _apply_append(p_el: etree._Element, new_text: str) -> None:
     """在 w:p 末尾追加新 w:r 元素，继承段落样式。"""
     new_run = etree.SubElement(p_el, _ns("r"))
@@ -162,6 +190,13 @@ def _apply_operation(root: etree._Element, op: WriteBackOperation) -> bool:
         if first_p is None:
             return False
         _apply_replace(first_p, op.new_text)
+        return True
+
+    elif strategy == "section_append":
+        # 目标必须是 w:p，在其后插入新段落
+        if etree.QName(element).localname != "p":
+            return False
+        _apply_section_append(element, op.new_text)
         return True
 
     return False

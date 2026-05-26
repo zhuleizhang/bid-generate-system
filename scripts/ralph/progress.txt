@@ -46,7 +46,7 @@ US-015 |   done  | 招标要求提取与结构化
 US-016 |   done  | 标书任务拆解服务
 US-017 |   done  | AIRevision 生成引擎
 US-018 |   done  | 响应性检查服务
-US-019 | pending | DOCX 最终导出服务
+US-019 |   done  | DOCX 最终导出服务
 US-020 | pending | 项目列表和创建/编辑页面
 US-021 | pending | 文件上传组件（拖拽上传 + 进度展示）
 US-022 | pending | 招标解析结果展示与人工编辑
@@ -398,4 +398,29 @@ US-042 | pending | 相似案例与章节推荐侧边栏
   - 后续 US-019（DOCX 导出）可在导出前调用本接口检查 blocking 问题
   - 后续 US-030（响应性检查结果页）需读取本接口的数据在前端展示响应矩阵
 ---
+
+## 2026-05-26 — US-019
+- 创建了 `app/models/export_record.py`：ExportResult 和 ExportRecordResponse Pydantic 模型
+- 创建了 `app/services/export_service.py`：DOCX 导出引擎
+  - 导出前检查 blocking 级别 UnfinishedItem，存在时阻断返回 blocked 状态
+  - 筛选 status = 'accepted'/'edited_then_accepted' 的 AIRevision
+  - 通过 template_slot_id 获取 location_path 和 fill_strategy 构建 WriteBackOperation
+  - revision_type 为 new_section 时自动映射到 section_append 策略
+  - 复用 docx_writer.write_back_docx 批量应用回写操作
+  - 上传结果到 exports/{project_id}/{timestamp}/{name}_final.docx
+  - 创建 DocumentVersion（version_type='export'）和 ExportRecord
+- 创建了 `app/api/exports.py`：
+  - POST /api/projects/{project_id}/export — 触发导出（409 阻断）
+  - GET /api/projects/{project_id}/export/download — 下载最新导出
+- 在 `app/services/docx_writer.py` 中新增 section_append 策略：在目标 w:p 后插入新 w:p，继承段落和字符样式
+- 在 `app/gateway/supabase_gateway.py` 中新增 insert_export_record、get_export_records 方法
+- 在 `app/api/router.py` 中注册 exports_router
+- mypy + tsc + eslint 均通过
+- **供后续迭代参考的经验：**
+  - 导出流程依赖完整的 E0→E1 管线：template_slots（位置+策略） + ai_revisions（内容）→ 最终 DOCX
+  - section_append 策略通过 lxml 在父元素中定位目标段落后 insert(idx+1, new_p) 实现，需继承 pPr 和 rPr 样式
+  - 导出前必须检查 blocking UnfinishedItem，这是安全阀机制
+  - 后续 US-031（DOCX 导出流程 UI）直接调用 POST /api/projects/{id}/export 端点
+---
+
 
