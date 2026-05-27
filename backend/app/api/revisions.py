@@ -7,6 +7,15 @@ from app.gateway.supabase_gateway import SupabaseGateway
 
 revisions_router = APIRouter(prefix="/revisions", tags=["revisions"])
 
+# 合法的状态转换路径
+VALID_TRANSITIONS: dict[str, list[str]] = {
+    "draft": ["pending_confirmation"],
+    "pending_confirmation": ["in_review"],
+    "in_review": ["review_completed"],
+    "review_completed": ["exported"],
+    "exported": ["completed"],
+}
+
 
 class RevisionStatusUpdate(BaseModel):
     """AIRevision 状态变更请求体。"""
@@ -116,3 +125,54 @@ async def batch_update_revision_status(body: BatchStatusUpdate):
             results["fail_count"] += 1
 
     return results
+
+
+@revisions_router.post("/check-review-complete/{project_id}")
+async def check_review_complete(project_id: str):
+    """检查项目是否所有修订已处理，若完成则转换状态为 review_completed。
+
+    查询项目下所有文档的 AIRevision，全部状态为 accepted/rejected/
+    edited_then_accepted/unable_to_fill 时视为完成。
+    """
+    gw = SupabaseGateway()
+
+    project = gw.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    if project.get("status") != "in_review":
+        raise HTTPException(
+            status_code=409,
+            detail=f"当前状态为 {project.get('status')}，不允许执行审阅完成检查",
+        )
+
+    documents = gw.get_documents_by_project(project_id)
+    pending_found = False
+    total = 0
+
+    for doc in documents:
+        revisions = gw.get_ai_revisions(doc["id"])
+        total += len(revisions)
+        for rev in revisions:
+            if rev.get("status") not in ("accepted", "rejected", "edited_then_accepted", "unable_to_fill"):
+                pending_found = True
+                break
+        if pending_found:
+            break
+
+    if not pending_found and total > 0:
+        # 自动转换状态
+        result = gw.transition_project_status(project_id, "in_review", "review_completed")
+        return {
+            "complete": True,
+            "total_revisions": total,
+            "new_status": "review_completed",
+            "transitioned": result is not None,
+        }
+
+    return {
+        "complete": False,
+        "total_revisions": total,
+        "has_pending": pending_found,
+        "current_status": project.get("status"),
+    }

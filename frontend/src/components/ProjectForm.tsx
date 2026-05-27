@@ -57,8 +57,10 @@ export default function ProjectForm({ project }: Props) {
         await api.put(`/api/projects/${project!.id}`, body);
         message.success("项目更新成功");
       } else {
-        await api.post("/api/projects", body);
+        const newProject = await api.post<Project>("/api/projects", body);
         message.success("项目创建成功");
+        router.push(`/projects/${newProject.id}/edit`);
+        return;
       }
       router.push("/projects");
     } catch {

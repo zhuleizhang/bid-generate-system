@@ -48,3 +48,10 @@ class ProjectListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ProjectTransitionRequest(BaseModel):
+    """项目状态转换请求体。"""
+
+    from_status: str = Field(..., description="当前状态")
+    to_status: str = Field(..., description="目标状态")

@@ -122,7 +122,7 @@ CREATE TABLE projects (
   industry TEXT CHECK (industry IN ('建筑', 'IT', '制造', '医疗', '教育', '其他')),
   project_type TEXT CHECK (project_type IN ('工程类', '货物类', '服务类')),
   deadline DATE,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'archived')),
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending_confirmation', 'in_review', 'review_completed', 'exported', 'completed')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -286,7 +286,7 @@ CREATE TABLE document_chunks (
   content TEXT NOT NULL,
   chunk_index INTEGER NOT NULL,
   metadata JSONB NOT NULL DEFAULT '{}',
-  embedding VECTOR(1536),
+  embedding extensions.vector(1536),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

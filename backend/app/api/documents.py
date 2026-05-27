@@ -499,6 +499,9 @@ async def preview_document(doc_id: str):
     # 获取 AIRevision 和 document_nodes 数据
     ai_revisions_raw = gw.get_ai_revisions(doc_id)
     ai_revisions: list[dict] = [dict(r) for r in ai_revisions_raw]
+    # 按风险等级排序：高 → 中 → 低
+    risk_order = {"high": 0, "medium": 1, "low": 2}
+    ai_revisions.sort(key=lambda r: risk_order.get(r.get("risk_level", "low"), 99))
 
     # 获取未完成项数据
     unfinished_raw = gw.get_unfinished_items(doc_id)

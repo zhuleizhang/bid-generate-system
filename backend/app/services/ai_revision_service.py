@@ -384,12 +384,23 @@ async def generate_ai_revisions(doc_id: str) -> dict[str, Any]:
                 else:
                     revision_type = "replace"
 
-                # 风险判断
+                # 四级风险分流
                 expected_type = slot.get("expected_content_type") or ""
-                is_high_risk = _is_high_risk_content(ai_content, expected_type)
-                risk_level = "high" if is_high_risk else "medium"
-                status = "need_human_confirm" if is_high_risk else "pending"
                 confidence = slot.get("confidence", 0.7)
+                involves_sensitive = _is_high_risk_content(ai_content, expected_type)
+
+                if involves_sensitive or confidence < 0.5:
+                    # 涉及资质/报价/承诺，或置信度过低 → 锁定待确认
+                    risk_level = "high"
+                    status = "need_human_confirm"
+                elif confidence >= 0.85:
+                    # 高置信度 + 低风险 → 静默通过
+                    risk_level = "low"
+                    status = "accepted"
+                else:
+                    # 中等置信度 → 待审核
+                    risk_level = "medium"
+                    status = "pending"
 
                 # 匹配的 requirement IDs
                 matched_reqs = _match_requirements_for_slot(slot, requirements)

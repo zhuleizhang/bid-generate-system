@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { Tree, Input, Button, Space, Empty, Spin } from "antd";
+import React from "react";
+import { Tree, Input, Button, Space, Empty, Spin, Badge } from "antd";
 import {
   SearchOutlined,
   ExpandAltOutlined,
@@ -18,21 +19,44 @@ export interface SectionItem {
   parent_section_id: string | null;
 }
 
+/** 每章节的修订状态统计 */
+export interface SectionBadgeInfo {
+  pending: number;
+  high_risk: number;
+  unfinished: number;
+  completed: number;
+}
+
 interface Props {
   sections: SectionItem[];
   onSelect: (sectionId: string) => void;
   selectedSectionId: string | null;
   loading?: boolean;
+  /** section_path → 统计信息，有值的章节会显示颜色角标 */
+  badgeMap?: Record<string, SectionBadgeInfo>;
 }
 
-function buildSectionTree(sections: SectionItem[]): DataNode[] {
+function buildSectionTree(
+  sections: SectionItem[],
+  badgeMap?: Record<string, SectionBadgeInfo>,
+): DataNode[] {
   const map = new Map<string, DataNode>();
   const roots: DataNode[] = [];
 
   for (const s of sections) {
+    const info = badgeMap?.[s.section_path];
+    const titleEl = React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 4 } },
+      s.title,
+      ...(info ? [
+        info.high_risk > 0 && React.createElement(Badge, { key: "hr", color: "red", count: info.high_risk, size: "small", style: { marginLeft: 4 }, overflowCount: 99 }),
+        info.pending > 0 && React.createElement(Badge, { key: "pd", color: "gold", count: info.pending, size: "small", style: { marginLeft: 4 }, overflowCount: 99 }),
+        info.unfinished > 0 && React.createElement(Badge, { key: "uf", color: "default", count: info.unfinished, size: "small", style: { marginLeft: 4 }, overflowCount: 99 }),
+        info.completed > 0 && info.pending === 0 && info.high_risk === 0 && info.unfinished === 0 && React.createElement(Badge, { key: "ok", color: "green", count: info.completed, size: "small", style: { marginLeft: 4 }, overflowCount: 99 }),
+      ].filter(Boolean) : []),
+    );
     map.set(s.section_id, {
       key: s.section_id,
-      title: s.title,
+      title: titleEl,
       children: [],
     });
   }
@@ -113,13 +137,14 @@ export default function ChapterTree({
   onSelect,
   selectedSectionId,
   loading = false,
+  badgeMap,
 }: Props) {
   const [searchText, setSearchText] = useState("");
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
 
   const treeData = useMemo(
-    () => (sections.length > 0 ? buildSectionTree(sections) : []),
-    [sections],
+    () => (sections.length > 0 ? buildSectionTree(sections, badgeMap) : []),
+    [sections, badgeMap],
   );
 
   const displayTree = useMemo(() => {

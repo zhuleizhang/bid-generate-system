@@ -9,6 +9,7 @@ import {
   SettingOutlined,
 } from "@ant-design/icons";
 import { useRouter, usePathname } from "next/navigation";
+import UnfinishedBadge from "@/components/UnfinishedBadge";
 
 const { Header, Sider, Content } = Layout;
 
@@ -88,6 +89,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           }}
         >
           <span style={{ fontSize: 16, fontWeight: 500 }}>智能标书系统</span>
+          <UnfinishedBadge />
         </Header>
         <Content
           style={{

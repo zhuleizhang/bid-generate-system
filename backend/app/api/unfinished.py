@@ -40,6 +40,51 @@ def _parse_llm_response(raw: str | None) -> dict:
         return {}
 
 
+@unfinished_router.get("/count")
+async def count_unfinished_items():
+    """获取全局未完成项计数（按风险等级分组）。
+
+    返回 {total, blocking, high, medium, low}。
+    前端 MainLayout 顶栏使用此数据渲染 Badge。
+    """
+    gw = SupabaseGateway()
+    # 直接从数据库获取所有 status=pending 的未完成项
+    try:
+        # 通过底层 Supabase client 查询
+        result = gw.client.table("unfinished_items").select("*", count="exact").eq("status", "pending").execute()  # type: ignore[arg-type]
+        items: list[dict] = result.data  # type: ignore[assignment]
+        total = result.count or 0  # type: ignore[union-attr]
+
+        counts: dict[str, int] = {"total": total, "blocking": 0, "high": 0, "medium": 0, "low": 0}
+        for item in items:
+            risk: str = item.get("risk_level", "low")
+            if risk in counts:
+                counts[risk] += 1
+        return counts
+    except Exception:
+        return {"total": 0, "blocking": 0, "high": 0, "medium": 0, "low": 0}
+
+
+@unfinished_router.get("/project/{project_id}/count")
+async def count_project_unfinished_items(project_id: str):
+    """获取指定项目的未完成项计数。"""
+    gw = SupabaseGateway()
+    docs = gw.get_documents_by_project(project_id)
+    if not docs:
+        return {"total": 0, "blocking": 0, "high": 0, "medium": 0, "low": 0}
+
+    counts: dict[str, int] = {"total": 0, "blocking": 0, "high": 0, "medium": 0, "low": 0}
+    for doc in docs:
+        items = gw.get_unfinished_items(doc["id"])
+        for item in items:
+            if item.get("status") == "pending":
+                risk: str = item.get("risk_level", "low")
+                counts["total"] += 1
+                if risk in counts:
+                    counts[risk] += 1
+    return counts
+
+
 @unfinished_router.get("/{item_id}")
 async def get_unfinished_item(item_id: str):
     """查询单条 UnfinishedItem 记录。"""

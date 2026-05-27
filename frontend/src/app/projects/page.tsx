@@ -9,24 +9,37 @@ import { api } from "@/lib/api";
 import type { Project, ProjectListResponse } from "@/lib/types/project";
 
 const STATUS_LABELS: Record<string, string> = {
-  pending: "待处理",
-  in_progress: "进行中",
+  draft: "草稿",
+  pending_confirmation: "待确认",
+  in_review: "审阅中",
+  review_completed: "审阅完成",
+  exported: "已导出",
   completed: "已完成",
-  archived: "已归档",
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "default",
-  in_progress: "processing",
+  draft: "default",
+  pending_confirmation: "processing",
+  in_review: "processing",
+  review_completed: "success",
+  exported: "success",
   completed: "success",
-  archived: "warning",
+};
+
+/** PRD 状态 → 页面路由映射 */
+const STATUS_ROUTE: Record<string, string> = {
+  draft: "edit",
+  pending_confirmation: "workbench",
+  in_review: "preview",
+  review_completed: "review",
+  exported: "export",
+  completed: "export",
 };
 
 /** 按状态估算进度百分比 */
 function progressPercent(status: string): number {
-  if (status === "completed" || status === "archived") return 100;
-  if (status === "in_progress") return 50;
-  return 0;
+  const idx = ["draft", "pending_confirmation", "in_review", "review_completed", "exported", "completed"].indexOf(status);
+  return idx >= 0 ? Math.round((idx / 5) * 100) : 0;
 }
 
 export default function ProjectsPage() {
@@ -76,7 +89,10 @@ export default function ProjectsPage() {
       key: "name",
       ellipsis: true,
       render: (name: string, r) => (
-        <a onClick={() => router.push(`/projects/${r.id}`)}>{name}</a>
+        <a onClick={() => {
+          const sub = STATUS_ROUTE[r.status] || "edit";
+          router.push(`/projects/${r.id}/${sub}`);
+        }}>{name}</a>
       ),
     },
     {

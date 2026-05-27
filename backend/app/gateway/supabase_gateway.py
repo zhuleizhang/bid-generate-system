@@ -266,6 +266,18 @@ class SupabaseGateway:
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return len(items) > 0
 
+    def transition_project_status(self, project_id: str, from_status: str, to_status: str) -> dict[str, Any] | None:
+        """原子性状态转换：只有当前状态为 from_status 时才更新为 to_status。"""
+        result = (
+            self.client.table("projects")
+            .update({"status": to_status})
+            .eq("id", project_id)
+            .eq("status", from_status)
+            .execute()
+        )
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else None
+
     def get_project_document_count(self, project_id: str) -> int:
         """查询项目下的文件数量。"""
         result = (
