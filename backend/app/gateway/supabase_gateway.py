@@ -39,8 +39,19 @@ class SupabaseGateway:
         return self.client.storage.from_(self.bucket).download(path)
 
     def download_file_by_url(self, url: str) -> bytes:
-        """通过公开 URL 下载文件内容。"""
+        """通过公开 URL 或 SDK 下载文件内容。
+
+        优先从 URL 中提取 storage path 使用 SDK 下载（支持私有 bucket），
+        降级为 HTTP 公网下载。
+        """
         import httpx
+        bucket_prefix = f"/storage/v1/object/public/{self.bucket}/"
+        if bucket_prefix in url:
+            storage_path = url.split(bucket_prefix, 1)[1]
+            try:
+                return self.client.storage.from_(self.bucket).download(storage_path)
+            except Exception:
+                pass
         resp = httpx.get(url, follow_redirects=True)
         resp.raise_for_status()
         return resp.content
@@ -56,6 +67,28 @@ class SupabaseGateway:
         result = self.client.table("documents").select("*").eq("id", doc_id).execute()
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items[0] if items else None
+
+    def delete_document(self, doc_id: str) -> bool:
+        """删除文档记录及相关数据（节点、章节、slots、AI revisions、未完成项），同时删除 Storage 文件。"""
+        # 先查文档获取 file_path，用于删除 Storage 文件
+        doc = self.get_document(doc_id)
+        if doc:
+            file_path = doc.get("file_path", "")
+            bucket_prefix = f"/storage/v1/object/public/{self.bucket}/"
+            if bucket_prefix in str(file_path):
+                storage_path = str(file_path).split(bucket_prefix, 1)[1]
+                try:
+                    self.client.storage.from_(self.bucket).remove([storage_path])
+                except Exception:
+                    pass  # Storage 删除失败不影响 DB 清理
+
+        self.delete_ai_revisions(doc_id)
+        self.delete_unfinished_items(doc_id)
+        self.delete_template_slots(doc_id)
+        self.delete_section_contents(doc_id)
+        self.delete_document_nodes(doc_id)
+        result = self.client.table("documents").delete().eq("id", doc_id).execute()
+        return len(result.data) > 0  # type: ignore[arg-type]
 
     # ── Document Nodes ──────────────────────────────────────────
 
@@ -90,6 +123,12 @@ class SupabaseGateway:
     def update_document_status(self, doc_id: str, status: str) -> dict[str, Any]:
         """更新文档状态。"""
         result = self.client.table("documents").update({"status": status}).eq("id", doc_id).execute()
+        items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
+        return items[0] if items else {}
+
+    def update_document(self, doc_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        """更新文档字段。"""
+        result = self.client.table("documents").update(data).eq("id", doc_id).execute()
         items: list[dict[str, Any]] = result.data  # type: ignore[assignment]
         return items[0] if items else {}
 

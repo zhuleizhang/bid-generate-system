@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Typography,
   Card,
@@ -14,6 +14,7 @@ import {
   Statistic,
   Row,
   Col,
+  Tabs,
 } from "antd";
 import {
   ArrowLeftOutlined,
@@ -23,6 +24,11 @@ import {
   WarningOutlined,
   FileTextOutlined,
   CheckOutlined,
+  AimOutlined,
+  SafetyCertificateOutlined,
+  FormatPainterOutlined,
+  TrophyOutlined,
+  SolutionOutlined,
 } from "@ant-design/icons";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -36,12 +42,22 @@ import {
 
 const { Title, Text } = Typography;
 
+/** 按检查类型分组的 Tab 定义 */
+interface CheckTab {
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  filter: (item: ReviewCheckItem) => boolean;
+  emptyText: string;
+}
+
 export default function ReviewPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<ReviewCheckResult | null>(null);
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("matrix");
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +72,7 @@ export default function ReviewPage() {
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : "响应性检查执行失败，请确保项目已上传招标文件并完成 AIRevision 生成"
+            err instanceof Error ? err.message : "响应性检查执行失败"
           );
         }
       } finally {
@@ -79,46 +95,111 @@ export default function ReviewPage() {
       setResult(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "响应性检查执行失败，请确保项目已上传招标文件并完成 AIRevision 生成"
+        err instanceof Error ? err.message : "响应性检查执行失败"
       );
     } finally {
       setLoading(false);
     }
   }, [id]);
 
-  // 构建统计卡片
-  const statsCards = result ? [
-    {
-      title: "总要求数",
-      value: result.total_requirements,
-      icon: <FileTextOutlined />,
-      color: "#1677ff",
+  const handleLocate = useCallback(
+    (item: ReviewCheckItem) => {
+      router.push(`/projects/${id}/preview`);
     },
-    {
-      title: "已覆盖",
-      value: result.pass_count,
-      icon: <CheckCircleOutlined />,
-      color: "#52c41a",
-    },
-    {
-      title: "无响应",
-      value: result.fail_count,
-      icon: <CloseCircleOutlined />,
-      color: "#ff4d4f",
-    },
-    {
-      title: "待确认",
-      value: result.warning_count,
-      icon: <WarningOutlined />,
-      color: "#faad14",
-    },
-    {
-      title: "覆盖率",
-      value: `${(result.coverage_rate * 100).toFixed(1)}%`,
-      icon: <CheckOutlined />,
-      color: result.coverage_rate >= 0.8 ? "#52c41a" : "#ff4d4f",
-    },
-  ] : [];
+    [id, router],
+  );
+
+  // 检查 Tab 定义
+  const checkTabs: CheckTab[] = useMemo(
+    () => [
+      {
+        key: "matrix",
+        label: "响应矩阵",
+        icon: <SolutionOutlined />,
+        filter: (_item: ReviewCheckItem) => true,
+        emptyText: "暂无检查数据",
+      },
+      {
+        key: "disqualification",
+        label: "废标项检查",
+        icon: <SafetyCertificateOutlined />,
+        filter: (item: ReviewCheckItem) =>
+          item.risk_level === "blocking" || item.is_mandatory,
+        emptyText: "未检测到废标项",
+      },
+      {
+        key: "qualification",
+        label: "资质核对",
+        icon: <CheckCircleOutlined />,
+        filter: (item: ReviewCheckItem) => item.requirement_type === "qualification",
+        emptyText: "暂无需核对的资质要求",
+      },
+      {
+        key: "scoring",
+        label: "评分项覆盖",
+        icon: <TrophyOutlined />,
+        filter: (item: ReviewCheckItem) => item.requirement_type === "scoring",
+        emptyText: "暂未提取到评分项，请确认招标文件中是否包含评分标准",
+      },
+      {
+        key: "format",
+        label: "格式问题",
+        icon: <FormatPainterOutlined />,
+        filter: (item: ReviewCheckItem) => item.requirement_type === "format",
+        emptyText: "未检测到格式问题",
+      },
+    ],
+    [],
+  );
+
+  // 统计卡片
+  const statsCards = result
+    ? [
+        {
+          title: "总要求数",
+          value: result.total_requirements,
+          icon: <FileTextOutlined />,
+          color: "#1677ff",
+        },
+        {
+          title: "已覆盖",
+          value: result.pass_count,
+          icon: <CheckCircleOutlined />,
+          color: "#52c41a",
+        },
+        {
+          title: "无响应",
+          value: result.fail_count,
+          icon: <CloseCircleOutlined />,
+          color: "#ff4d4f",
+        },
+        {
+          title: "待确认",
+          value: result.warning_count,
+          icon: <WarningOutlined />,
+          color: "#faad14",
+        },
+        {
+          title: "覆盖率",
+          value: `${(result.coverage_rate * 100).toFixed(1)}%`,
+          icon: <CheckOutlined />,
+          color: result.coverage_rate >= 0.8 ? "#52c41a" : "#ff4d4f",
+        },
+        {
+          title: "废标风险",
+          value: result.has_blocking_issues ? "有" : "无",
+          icon: <SafetyCertificateOutlined />,
+          color: result.has_blocking_issues ? "#ff4d4f" : "#52c41a",
+        },
+      ]
+    : [];
+
+  // 当前 Tab 的过滤数据
+  const currentTab = checkTabs.find((t) => t.key === activeTab) || checkTabs[0];
+  const filteredItems = useMemo(
+    () => (result?.items ?? []).filter(currentTab.filter),
+    [result, currentTab],
+  );
 
   // 表格列定义
   const columns = [
@@ -152,10 +233,28 @@ export default function ReviewPage() {
           {record.is_mandatory && (
             <Tag color="red" style={{ fontSize: 11 }}>强制</Tag>
           )}
+          {record.risk_level === "blocking" && (
+            <Tag color="#ff0000" style={{ fontSize: 11 }}>废标</Tag>
+          )}
           <Tag color={RISK_LEVEL_COLORS[record.risk_level]} style={{ fontSize: 11 }}>
             {RISK_LEVEL_LABELS[record.risk_level]}
           </Tag>
         </Space>
+      ),
+    },
+    {
+      title: "操作",
+      key: "action",
+      width: 100,
+      render: (_: unknown, record: ReviewCheckItem) => (
+        <Button
+          size="small"
+          type="link"
+          icon={<AimOutlined />}
+          onClick={() => handleLocate(record)}
+        >
+          定位
+        </Button>
       ),
     },
   ];
@@ -188,7 +287,6 @@ export default function ReviewPage() {
     </div>
   );
 
-  // 加载态
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: 80 }}>
@@ -197,7 +295,6 @@ export default function ReviewPage() {
     );
   }
 
-  // 错误态
   if (error) {
     return (
       <div style={{ padding: 24 }}>
@@ -217,7 +314,6 @@ export default function ReviewPage() {
     );
   }
 
-  // 无要求状态
   if (!result || result.total_requirements === 0) {
     return (
       <div style={{ padding: 24 }}>
@@ -233,6 +329,36 @@ export default function ReviewPage() {
       </div>
     );
   }
+
+  const renderTable = (items: ReviewCheckItem[]) =>
+    items.length === 0 ? (
+      <Empty
+        description={currentTab.emptyText}
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+      />
+    ) : (
+      <Table
+        dataSource={items}
+        columns={columns}
+        rowKey="requirement_id"
+        expandable={{
+          expandedRowRender,
+          rowExpandable: (record) =>
+            record.status !== "PASS" || !!record.description,
+          defaultExpandAllRows: activeTab !== "matrix",
+        }}
+        pagination={
+          items.length > 20
+            ? {
+                pageSize: 20,
+                showSizeChanger: true,
+                showTotal: (t) => `共 ${t} 条`,
+              }
+            : false
+        }
+        locale={{ emptyText: "暂无检查数据" }}
+      />
+    );
 
   return (
     <div style={{ padding: 24 }}>
@@ -253,14 +379,19 @@ export default function ReviewPage() {
             响应性检查
           </Title>
         </Space>
-        <Button
-          type="primary"
-          icon={<ReloadOutlined />}
-          onClick={runCheck}
-          loading={loading}
-        >
-          重新检查
-        </Button>
+        <Space>
+          <Button onClick={() => router.push(`/projects/${id}/preview`)}>
+            返回审阅工作台
+          </Button>
+          <Button
+            type="primary"
+            icon={<ReloadOutlined />}
+            onClick={runCheck}
+            loading={loading}
+          >
+            重新检查
+          </Button>
+        </Space>
       </div>
 
       {/* 全局警告横幅 */}
@@ -277,7 +408,7 @@ export default function ReviewPage() {
       {/* 统计卡片 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
         {statsCards.map((card) => (
-          <Col key={card.title} xs={24} sm={12} md={Math.floor(24 / statsCards.length)} lg={Math.floor(24 / statsCards.length)}>
+          <Col key={card.title} xs={12} sm={8} md={Math.floor(24 / statsCards.length)} lg={Math.floor(24 / statsCards.length)}>
             <Card size="small">
               <Statistic
                 title={card.title}
@@ -290,24 +421,24 @@ export default function ReviewPage() {
         ))}
       </Row>
 
-      {/* 响应矩阵表格 */}
-      <Card title="响应矩阵">
-        <Table
-          dataSource={result.items}
-          columns={columns}
-          rowKey="requirement_id"
-          expandable={{
-            expandedRowRender,
-            rowExpandable: (record) =>
-              record.status !== "PASS" || !!record.description,
-            defaultExpandAllRows: result.fail_count > 0,
-          }}
-          pagination={
-            result.items.length > 20
-              ? { pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }
-              : false
-          }
-          locale={{ emptyText: "暂无检查数据" }}
+      {/* 分类 Tab 检查结果 */}
+      <Card>
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={checkTabs.map((tab) => ({
+            key: tab.key,
+            label: (
+              <Space size={4}>
+                {tab.icon}
+                <span>{tab.label}</span>
+                <Tag>
+                  {(result.items ?? []).filter(tab.filter).length}
+                </Tag>
+              </Space>
+            ),
+            children: renderTable(filteredItems),
+          }))}
         />
       </Card>
     </div>

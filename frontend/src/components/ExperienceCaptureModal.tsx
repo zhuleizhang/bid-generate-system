@@ -23,9 +23,38 @@ interface Props {
   open: boolean;
   aiContent: string;
   userEditedContent: string;
+  projectId?: string;
+  revisionId?: string;
+  sectionPath?: string;
   onSave: (scope: ExperienceScope) => void;
   onSkip: () => void;
   onClose: () => void;
+}
+
+function saveToLocalStorage(
+  projectId: string,
+  revisionId: string,
+  aiContent: string,
+  userEditedContent: string,
+  sectionPath: string,
+) {
+  try {
+    const key = `pending_experiences_${projectId}`;
+    const stored = localStorage.getItem(key);
+    const items = stored ? JSON.parse(stored) : [];
+    items.push({
+      id: `${revisionId}_${Date.now()}`,
+      revisionId,
+      aiContent,
+      userEditedContent,
+      sectionPath: sectionPath || "未分类",
+      scope: "company",
+      capturedAt: new Date().toISOString(),
+    });
+    localStorage.setItem(key, JSON.stringify(items));
+  } catch {
+    // localStorage 不可用时静默失败
+  }
 }
 
 /** 内联经验捕获弹窗 — 用户"修改后接受"时自动弹出，询问是否沉淀经验。 */
@@ -33,6 +62,9 @@ export default function ExperienceCaptureModal({
   open,
   aiContent,
   userEditedContent,
+  projectId,
+  revisionId,
+  sectionPath,
   onSave,
   onSkip,
   onClose,
@@ -49,6 +81,20 @@ export default function ExperienceCaptureModal({
     }
   };
 
+  const handleLater = () => {
+    if (projectId && revisionId) {
+      saveToLocalStorage(
+        projectId,
+        revisionId,
+        aiContent,
+        userEditedContent,
+        sectionPath || "",
+      );
+      antMsg.success("已保存至经验确认列表，项目复盘时可统一处理");
+    }
+    onSkip();
+  };
+
   return (
     <Modal
       title="保存为写作经验？"
@@ -62,6 +108,13 @@ export default function ExperienceCaptureModal({
         <Space style={{ width: "100%", justifyContent: "flex-end" }}>
           <CancelBtn />
           <OkBtn />
+          <button
+            type="button"
+            className="ant-btn ant-btn-default"
+            onClick={handleLater}
+          >
+            稍后再说
+          </button>
           <button
             type="button"
             className="ant-btn ant-btn-default"

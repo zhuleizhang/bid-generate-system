@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   Typography,
   Select,
@@ -34,7 +34,7 @@ import {
   STATUS_COLORS,
 } from "@/lib/types/ai_revision";
 import ChapterTree from "@/components/ChapterTree";
-import type { SectionItem } from "@/components/ChapterTree";
+import type { SectionItem, SectionBadgeInfo } from "@/components/ChapterTree";
 import RevisionSidebar from "@/components/RevisionSidebar";
 import UnfinishedPanel from "@/components/UnfinishedPanel";
 
@@ -149,6 +149,33 @@ export default function PreviewPage() {
     }
     revisionMapRef.current = map;
   }, [previewData?.ai_revisions]);
+
+  // 计算章节角标数据：section_path → 各状态修订数量
+  const badgeMap = useMemo<Record<string, SectionBadgeInfo>>(() => {
+    const map: Record<string, SectionBadgeInfo> = {};
+    if (!previewData?.ai_revisions && !previewData?.unfinished_items) return map;
+
+    // 从 AIRevision 中统计
+    for (const rev of previewData?.ai_revisions ?? []) {
+      const path = rev.metadata?.section_path;
+      if (typeof path !== "string" || !path.trim()) continue;
+      if (!map[path]) map[path] = { pending: 0, high_risk: 0, unfinished: 0, completed: 0 };
+      if (rev.status === "pending") map[path].pending++;
+      else if (rev.status === "need_human_confirm") map[path].pending++;
+      else if (rev.status === "accepted" || rev.status === "edited_then_accepted") map[path].completed++;
+      if (rev.risk_level === "high") map[path].high_risk++;
+    }
+
+    // 从未完成项中统计
+    for (const item of previewData?.unfinished_items ?? []) {
+      const path = item.section_path;
+      if (!path) continue;
+      if (!map[path]) map[path] = { pending: 0, high_risk: 0, unfinished: 0, completed: 0 };
+      map[path].unfinished++;
+    }
+
+    return map;
+  }, [previewData]);
 
   const handleSectionSelect = useCallback((sectionId: string) => {
     setSelectedSectionId(sectionId);
@@ -356,6 +383,7 @@ export default function PreviewPage() {
               selectedSectionId={selectedSectionId}
               onSelect={handleSectionSelect}
               loading={previewLoading}
+              badgeMap={badgeMap}
             />
           </Card>
 
@@ -444,6 +472,7 @@ export default function PreviewPage() {
                           <RevisionSidebar
                             revisions={previewData.ai_revisions}
                             onStatusChange={handleRevisionRefresh}
+                            projectId={id}
                           />
                         ),
                       }

@@ -35,6 +35,7 @@ import {
   SafetyCertificateOutlined,
   ExportOutlined,
   DownloadOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import type { UploadFile, RcFile } from "antd/es/upload/interface";
 import { useParams, useRouter } from "next/navigation";
@@ -107,6 +108,7 @@ export default function ProjectDetailPage() {
   const [filesLoading, setFilesLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadFileList, setUploadFileList] = useState<UploadFile[]>([]);
+  const [parsing, setParsing] = useState(false);
 
   // 招标要求相关状态
   const [requirements, setRequirements] = useState<RequirementDBItem[]>([]);
@@ -216,6 +218,21 @@ export default function ProjectDetailPage() {
     }
   }, [id]);
 
+  // ── 开始解析 ──────────────────────────────────────────────────
+
+  const handleStartParsing = async () => {
+    setParsing(true);
+    try {
+      await api.post(`/api/projects/${id}/start-parsing`, {});
+      message.success("解析完成，即将跳转到工作台");
+      router.push(`/projects/${id}/workbench`);
+    } catch (err) {
+      message.error(`解析失败：${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setParsing(false);
+    }
+  };
+
   // ── 文件上传逻辑 ──────────────────────────────────────────────
 
   const handleBeforeUpload = (file: RcFile) => {
@@ -240,11 +257,11 @@ export default function ProjectDetailPage() {
     onSuccess?: (body: unknown) => void;
     onError?: (event: Error) => void;
   }) => {
-    const { file, filename, onProgress, onSuccess, onError } = options;
+    const { file, onProgress, onSuccess, onError } = options;
     const rcFile = file as RcFile;
 
     const formData = new FormData();
-    formData.append("files", rcFile, filename || rcFile.name);
+    formData.append("files", rcFile, rcFile.name);
     formData.append("document_type", getDefaultDocType(rcFile.name));
 
     setUploading(true);
@@ -455,6 +472,10 @@ export default function ProjectDetailPage() {
           <p className="ant-upload-hint">
             支持 {ALLOWED_EXTENSIONS_DISPLAY} 格式，单文件最大 50MB
           </p>
+          <p className="ant-upload-hint" style={{ marginTop: 8, color: "#8c8c8c" }}>
+            扩展名默认分类：.docx → 投标模板，.pdf → 招标文件，.doc → 公司资料。
+            上传后可在文件列表中手动调整类型。
+          </p>
         </Dragger>
       </Card>
 
@@ -500,6 +521,26 @@ export default function ProjectDetailPage() {
                     renderItem={(item) => (
                       <List.Item
                         actions={[
+                          <Select
+                            key="type"
+                            size="small"
+                            value={item.document_type}
+                            style={{ width: 110 }}
+                            options={[
+                              { value: "bid_template", label: "投标模板" },
+                              { value: "tender_doc", label: "招标文件" },
+                              { value: "company_material", label: "公司资料" },
+                            ]}
+                            onChange={async (val) => {
+                              try {
+                                await api.patch(`/api/projects/${id}/files/${item.id}`, { document_type: val });
+                                message.success("文件类型已更新");
+                                fetchFiles();
+                              } catch {
+                                message.error("更新失败");
+                              }
+                            }}
+                          />,
                           <Text
                             key="size"
                             type="secondary"
@@ -514,6 +555,29 @@ export default function ProjectDetailPage() {
                           >
                             {dayjs(item.created_at).format("YYYY-MM-DD HH:mm")}
                           </Text>,
+                          <Popconfirm
+                            key="delete"
+                            title="确认删除该文件？"
+                            description="删除后将同时清除解析数据"
+                            onConfirm={async () => {
+                              try {
+                                await api.delete(`/api/projects/${id}/files/${item.id}`);
+                                message.success("文件已删除");
+                                fetchFiles();
+                              } catch {
+                                message.error("删除失败");
+                              }
+                            }}
+                            okText="确认"
+                            cancelText="取消"
+                          >
+                            <Button
+                              type="link"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                            />
+                          </Popconfirm>,
                         ]}
                       >
                         <FileOutlined style={{ marginRight: 8 }} />
@@ -750,6 +814,25 @@ export default function ProjectDetailPage() {
           {project.name}
         </Title>
         <Space>
+          {project.status === "draft" && (
+            <Tooltip
+              title={
+                groupedFiles.bid_template.length === 0
+                  ? "请先上传投标模板文件（.docx 或 .doc）"
+                  : ""
+              }
+            >
+              <Button
+                type="primary"
+                icon={<ThunderboltOutlined />}
+                loading={parsing}
+                disabled={groupedFiles.bid_template.length === 0}
+                onClick={handleStartParsing}
+              >
+                开始解析
+              </Button>
+            </Tooltip>
+          )}
           <Button
             icon={<FileTextOutlined />}
             onClick={() => router.push(`/projects/${id}/preview`)}

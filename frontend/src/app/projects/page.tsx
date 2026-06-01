@@ -28,12 +28,11 @@ const STATUS_COLORS: Record<string, string> = {
 
 /** PRD 状态 → 页面路由映射 */
 const STATUS_ROUTE: Record<string, string> = {
-  draft: "edit",
   pending_confirmation: "workbench",
   in_review: "preview",
   review_completed: "review",
   exported: "export",
-  completed: "export",
+  completed: "experience",
 };
 
 /** 按状态估算进度百分比 */
@@ -90,8 +89,12 @@ export default function ProjectsPage() {
       ellipsis: true,
       render: (name: string, r) => (
         <a onClick={() => {
-          const sub = STATUS_ROUTE[r.status] || "edit";
-          router.push(`/projects/${r.id}/${sub}`);
+          const sub = STATUS_ROUTE[r.status];
+          if (sub) {
+            router.push(`/projects/${r.id}/${sub}`);
+          } else {
+            router.push(`/projects/${r.id}`);
+          }
         }}>{name}</a>
       ),
     },
@@ -99,6 +102,14 @@ export default function ProjectsPage() {
       title: "招标单位",
       dataIndex: "tender_org",
       key: "tender_org",
+      ellipsis: true,
+      render: (v) => v || "-",
+    },
+    {
+      title: "行业",
+      dataIndex: "industry",
+      key: "industry",
+      width: 80,
       ellipsis: true,
       render: (v) => v || "-",
     },
@@ -154,9 +165,12 @@ export default function ProjectsPage() {
             }}
             options={[
               { label: "全部", value: undefined },
-              { label: "进行中", value: "in_progress" },
+              { label: "草稿", value: "draft" },
+              { label: "待确认", value: "pending_confirmation" },
+              { label: "审阅中", value: "in_review" },
+              { label: "审阅完成", value: "review_completed" },
+              { label: "已导出", value: "exported" },
               { label: "已完成", value: "completed" },
-              { label: "已归档", value: "archived" },
             ]}
           />
           <Input.Search

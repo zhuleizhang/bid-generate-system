@@ -6,9 +6,12 @@
 """
 
 import json
+import logging
 import re
 from collections import defaultdict
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from app.gateway.supabase_gateway import SupabaseGateway
 from app.gateway.model_gateway import ModelGateway
@@ -107,13 +110,13 @@ def _get_surrounding_context(
     """获取当前节点的前后文段落文本。"""
     before_parts: list[str] = []
     for i in range(max(0, current_index - context_size), current_index):
-        text = nodes[i].get("text", "").strip()
+        text = (nodes[i].get("text") or "").strip()
         if text:
             before_parts.append(text)
 
     after_parts: list[str] = []
     for i in range(current_index + 1, min(len(nodes), current_index + context_size + 1)):
-        text = nodes[i].get("text", "").strip()
+        text = (nodes[i].get("text") or "").strip()
         if text:
             after_parts.append(text)
 
@@ -346,34 +349,57 @@ async def generate_ai_revisions(doc_id: str) -> dict[str, Any]:
             )
             gw.insert_model_call_log(call_log)
 
-            # 解析 LLM 响应
+            # 解析 LLM 响应，校验 JSON 结构是否符合约定
             generated_contents: list[dict[str, Any]] = []
+            parse_error: str | None = None
+
             if result["content"] and not result["error"]:
                 parsed = _parse_llm_json_response(result["content"])
+
                 if isinstance(parsed, list):
-                    generated_contents = parsed
-                elif isinstance(parsed, dict) and "content" in parsed:
-                    generated_contents = [parsed]
+                    # 批量模式：验证每个元素是否包含 content 字段
+                    for idx, item in enumerate(parsed):
+                        if not isinstance(item, dict):
+                            parse_error = f"LLM 返回的列表第 {idx + 1} 个元素不是 JSON 对象，类型: {type(item).__name__}"
+                            break
+                        if "content" not in item:
+                            parse_error = f"LLM 返回的列表第 {idx + 1} 个元素缺少 content 字段，当前字段: {list(item.keys())}"
+                            break
+                    if not parse_error:
+                        generated_contents = parsed
+                elif isinstance(parsed, dict):
+                    if "content" not in parsed:
+                        parse_error = f"LLM 返回的 JSON 对象缺少 content 字段，当前字段: {list(parsed.keys())}"
+                    else:
+                        generated_contents = [parsed]
                 else:
-                    # 解析失败，所有 slot 标记为无法生成
-                    pass
+                    parse_error = f"LLM 返回格式不符合预期，类型: {type(parsed).__name__}，原始内容前 200 字符: {result['content'][:200]}"
+            else:
+                parse_error = result.get("error") or "LLM 调用返回空内容"
+
+            if parse_error:
+                logger.error("AIRevision 生成失败，doc_id=%s, section=%s: %s", doc_id, section_path, parse_error)
 
             # 为每个 slot 创建 AIRevision
             for i, slot in enumerate(batch):
                 slot_node: dict[str, Any] = node_map.get(slot["node_id"]) or {}
-                before_content = slot_node.get("text", "")
+                before_content = slot_node.get("text") or ""
                 slot_type = slot.get("slot_type", "paragraph")
 
                 gen = generated_contents[i] if i < len(generated_contents) else {}
-                ai_content = gen.get("content", "").strip()
-                comment = gen.get("comment", "").strip()
+                ai_content = gen.get("content")  # 可能为 None（LLM 返回 null）、""、或有效字符串
+                comment = gen.get("comment")  # 可能为 None、""、或有效字符串
 
                 if not ai_content:
                     # 无法生成 → UnfinishedItem
+                    reason = parse_error or "LLM 无法生成合适内容，可能缺少匹配的招标要求或关键信息不足"
                     all_unfinished.append(
-                        _build_unfinished_for_slot(slot, doc_id, "LLM 无法生成合适内容，可能缺少匹配的招标要求或关键信息不足")
+                        _build_unfinished_for_slot(slot, doc_id, reason)
                     )
                     continue
+
+                ai_content = ai_content.strip()
+                comment = (comment or "").strip()
 
                 # 确定 revision_type
                 fill_strategy = slot.get("fill_strategy", "replace")

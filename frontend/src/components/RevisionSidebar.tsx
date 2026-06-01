@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import {
 	Collapse,
 	Tag,
@@ -32,6 +32,8 @@ import {
 	STATUS_LABELS,
 	STATUS_COLORS,
 } from '@/lib/types/ai_revision';
+import ExperienceCaptureModal from '@/components/ExperienceCaptureModal';
+import type { ExperienceScope } from '@/components/ExperienceCaptureModal';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -39,6 +41,7 @@ const { TextArea } = Input;
 interface Props {
 	revisions: AIRevision[];
 	onStatusChange: () => void;
+	projectId?: string;
 }
 
 interface SectionGroup {
@@ -78,7 +81,7 @@ function isActionable(rev: AIRevision): boolean {
 	return rev.status === 'pending' || rev.status === 'need_human_confirm';
 }
 
-export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
+export default function RevisionSidebar({ revisions, onStatusChange, projectId }: Props) {
 	const [actionLoading, setActionLoading] = useState<string | null>(null);
 
 	// 编辑 Modal 状态
@@ -87,6 +90,12 @@ export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
 		null,
 	);
 	const [editContent, setEditContent] = useState('');
+
+	// 经验捕获 Modal 状态
+	const [expModalOpen, setExpModalOpen] = useState(false);
+	const [expAiContent, setExpAiContent] = useState('');
+	const [expEditedContent, setExpEditedContent] = useState('');
+	const expPendingActionRef = useRef<(() => void) | null>(null);
 
 	// 批量操作状态
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -146,14 +155,54 @@ export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
 
 	const handleEditSave = useCallback(() => {
 		if (!editingRevision) return;
-		handleStatusChange(
-			editingRevision.id,
-			'edited_then_accepted',
-			editContent,
-		);
-		setEditModalOpen(false);
-		setEditingRevision(null);
+		const aiContent = editingRevision.ai_content || '';
+		// 差异较大时先弹出经验捕获弹窗
+		const isSignificant =
+			editContent.trim() !== aiContent.trim() &&
+			Math.abs(editContent.length - aiContent.length) > 20;
+
+		const finalize = () => {
+			handleStatusChange(
+				editingRevision!.id,
+				'edited_then_accepted',
+				editContent,
+			);
+			setEditModalOpen(false);
+			setEditingRevision(null);
+		};
+
+		if (isSignificant) {
+			setExpAiContent(aiContent);
+			setExpEditedContent(editContent);
+			expPendingActionRef.current = finalize;
+			setExpModalOpen(true);
+		} else {
+			finalize();
+		}
 	}, [editingRevision, editContent, handleStatusChange]);
+
+	const handleExpSave = useCallback(
+		async (scope: ExperienceScope) => {
+			// 保存为经验（暂存本地逻辑，后端 API 待实现）
+			message.success(`已保存为${scope === "company" ? "公司通用" : scope === "industry" ? "行业通用" : scope === "customer" ? "客户" : "审查"}经验`);
+			setExpModalOpen(false);
+			expPendingActionRef.current?.();
+			expPendingActionRef.current = null;
+		},
+		[],
+	);
+
+	const handleExpSkip = useCallback(() => {
+		setExpModalOpen(false);
+		expPendingActionRef.current?.();
+		expPendingActionRef.current = null;
+	}, []);
+
+	const handleExpClose = useCallback(() => {
+		setExpModalOpen(false);
+		// 关闭弹窗但不执行状态变更，让用户继续编辑
+		expPendingActionRef.current = null;
+	}, []);
 
 	// ── 批量选择 ──────────────────────────────────────────────
 
@@ -624,6 +673,21 @@ export default function RevisionSidebar({ revisions, onStatusChange }: Props) {
 					</div>
 				)}
 			</Modal>
+
+			{/* 经验捕获弹窗 */}
+			<ExperienceCaptureModal
+				open={expModalOpen}
+				aiContent={expAiContent}
+				userEditedContent={expEditedContent}
+				projectId={projectId}
+				revisionId={editingRevision?.id}
+				sectionPath={
+					editingRevision?.metadata?.section_path as string | undefined
+				}
+				onSave={handleExpSave}
+				onSkip={handleExpSkip}
+				onClose={handleExpClose}
+			/>
 
 			{/* 批量操作确认弹窗 */}
 			{renderBatchConfirmModal()}

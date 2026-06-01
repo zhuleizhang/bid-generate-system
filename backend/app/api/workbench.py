@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app.gateway.supabase_gateway import SupabaseGateway
+from app.services.generation_orchestrator import orchestrate_full_generation
 
 workbench_router = APIRouter(prefix="/projects", tags=["workbench"])
 
@@ -49,8 +50,19 @@ async def confirm_and_generate(project_id: str):
     if not bid_template:
         raise HTTPException(status_code=400, detail="未找到投标模板文档，请先上传模板")
 
-    return {
-        "message": "生成流程已触发，请稍候",
-        "project_id": project_id,
-        "document_id": bid_template["id"],
-    }
+    # 执行全量生成编排
+    result = await orchestrate_full_generation(project_id, bid_template["id"])
+
+    if result.get("status") == "failed":
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "生成流程失败",
+                "errors": result.get("errors") or result.get("error"),
+            },
+        )
+
+    # 生成成功后，状态从 pending_confirmation 流转到 in_review
+    gw.transition_project_status(project_id, "pending_confirmation", "in_review")
+
+    return result

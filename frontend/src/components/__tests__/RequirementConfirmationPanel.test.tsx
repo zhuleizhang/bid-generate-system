@@ -37,10 +37,16 @@ const mockRequirements: RequirementDBItem[] = [
 ];
 
 describe("RequirementConfirmationPanel", () => {
+  const baseProps = {
+    projectId: "test-project",
+    onRequirementsChanged: vi.fn(),
+  };
+
   it("渲染要求列表", () => {
     const onConfirm = vi.fn();
     const { container } = renderWithProviders(
       <RequirementConfirmationPanel
+        {...baseProps}
         requirements={mockRequirements}
         onConfirmed={onConfirm}
       />
@@ -53,6 +59,7 @@ describe("RequirementConfirmationPanel", () => {
     const onConfirm = vi.fn();
     const { container } = renderWithProviders(
       <RequirementConfirmationPanel
+        {...baseProps}
         requirements={[]}
         onConfirmed={onConfirm}
       />
@@ -64,6 +71,7 @@ describe("RequirementConfirmationPanel", () => {
     const onConfirm = vi.fn();
     const { getByText } = renderWithProviders(
       <RequirementConfirmationPanel
+        {...baseProps}
         requirements={mockRequirements}
         onConfirmed={onConfirm}
       />

@@ -1,14 +1,24 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Typography, Card, Tabs, Button, Space, Spin, message, Result } from "antd";
+import { Typography, Card, Tabs, Button, Space, Spin, message, Result, Table, Tag, Empty } from "antd";
 import { useParams, useRouter } from "next/navigation";
 import type { RequirementDBItem } from "@/lib/types/requirement";
 import { api } from "@/lib/api";
 import type { Project } from "@/lib/types/project";
+import type { ProjectFileItem } from "@/lib/types/project_file";
+import type { TemplateSlot, SectionContent } from "@/lib/types/template_slot";
 import RequirementConfirmationPanel from "@/components/RequirementConfirmationPanel";
 
 const { Title } = Typography;
+
+/** 状态 → 页面路由映射 */
+const STATUS_ROUTE: Record<string, string> = {
+  in_review: "preview",
+  review_completed: "review",
+  exported: "export",
+  completed: "experience",
+};
 
 /** 项目工作台 — 2 个 Tab 确认招标要求和模板结构，然后触发全量生成。 */
 export default function WorkbenchPage() {
@@ -17,6 +27,9 @@ export default function WorkbenchPage() {
   const [loading, setLoading] = useState(true);
   const [project, setProject] = useState<Project | null>(null);
   const [requirements, setRequirements] = useState<RequirementDBItem[]>([]);
+  const [slots, setSlots] = useState<TemplateSlot[]>([]);
+  const [sections, setSections] = useState<SectionContent[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [tab1Confirmed, setTab1Confirmed] = useState(false);
   const [tab2Confirmed, setTab2Confirmed] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -28,12 +41,31 @@ export default function WorkbenchPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [proj, reqs] = await Promise.all([
+      const [proj, reqs, fileData] = await Promise.all([
         api.get<Project>(`/api/projects/${id}`),
         api.get<RequirementDBItem[]>(`/api/projects/${id}/requirements`),
+        api.get<{ files: ProjectFileItem[] }>(`/api/projects/${id}/files`),
       ]);
       setProject(proj);
       setRequirements(reqs.filter((r) => r.status !== "ignored"));
+
+      // 找到投标模板并加载 slots 和 sections
+      const template = fileData.files.find((f) => f.document_type === "bid_template");
+      if (template) {
+        setSlotsLoading(true);
+        try {
+          const [slotsData, sectionsData] = await Promise.all([
+            api.get<TemplateSlot[]>(`/api/documents/${template.id}/slots`),
+            api.get<SectionContent[]>(`/api/documents/${template.id}/sections`),
+          ]);
+          setSlots(slotsData);
+          setSections(sectionsData);
+        } catch {
+          // slots 可能尚未生成，静默处理
+        } finally {
+          setSlotsLoading(false);
+        }
+      }
     } catch {
       message.error("加载项目数据失败");
     } finally {
@@ -44,6 +76,16 @@ export default function WorkbenchPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // 如果项目已进入 in_review 或后续状态，重定向到对应页面
+  useEffect(() => {
+    if (project && project.status !== "draft" && project.status !== "pending_confirmation") {
+      const route = STATUS_ROUTE[project.status];
+      if (route) {
+        router.replace(`/projects/${id}/${route}`);
+      }
+    }
+  }, [project, id, router]);
 
   const handleConfirmAndGenerate = async () => {
     setGenerating(true);
@@ -140,7 +182,9 @@ export default function WorkbenchPage() {
             children: (
               <RequirementConfirmationPanel
                 requirements={requirements}
+                projectId={id}
                 onConfirmed={() => setTab1Confirmed(true)}
+                onRequirementsChanged={loadData}
               />
             ),
           },
@@ -159,31 +203,135 @@ export default function WorkbenchPage() {
               </span>
             ),
             children: (
-              <Card
-                title="模板结构确认"
-                extra={
-                  <Button
-                    type="primary"
-                    disabled={tab2Confirmed}
-                    onClick={() => setTab2Confirmed(true)}
-                  >
-                    确认模板结构
-                  </Button>
-                }
-              >
-                <Typography.Paragraph type="secondary">
-                  系统将自动识别你上传的投标模板中的章节结构、表格和填充位置。
-                  请确认模板已正确上传，并在下方查看模板解析结果。
-                </Typography.Paragraph>
-                <Button
-                  type="link"
-                  onClick={() =>
-                    router.push(`/projects/${id}/preview`)
-                  }
-                >
-                  在预览中查看模板结构
-                </Button>
-              </Card>
+              <div>
+                {slotsLoading ? (
+                  <div style={{ textAlign: "center", padding: 60 }}>
+                    <Spin tip="加载模板结构数据..." />
+                  </div>
+                ) : (
+                  <>
+                    {/* 章节结构 */}
+                    {sections.length > 0 && (
+                      <Card title="章节结构" size="small" style={{ marginBottom: 16 }}>
+                        <div style={{ maxHeight: 300, overflow: "auto" }}>
+                          {sections.map((s) => (
+                            <div
+                              key={s.id}
+                              style={{
+                                paddingLeft: (s.level - 1) * 24,
+                                padding: "4px 0",
+                                fontSize: s.level === 1 ? 15 : 13,
+                                fontWeight: s.level <= 2 ? 600 : 400,
+                                color: s.level <= 2 ? "#1a1a1a" : "#666",
+                              }}
+                            >
+                              {s.title}
+                            </div>
+                          ))}
+                        </div>
+                      </Card>
+                    )}
+
+                    {/* TemplateSlot 列表 */}
+                    <Card
+                      title={
+                        <Space>
+                          <span>填充位置识别结果</span>
+                          {slots.length > 0 && <Tag color="blue">{slots.length} 个位置</Tag>}
+                        </Space>
+                      }
+                      extra={
+                        <Button
+                          type="primary"
+                          disabled={tab2Confirmed}
+                          onClick={() => setTab2Confirmed(true)}
+                        >
+                          确认模板结构
+                        </Button>
+                      }
+                    >
+                      {slots.length === 0 ? (
+                        <Empty description="暂无可填充位置数据，请确认投标模板已正确上传并解析" />
+                      ) : (
+                        <Table<TemplateSlot>
+                          dataSource={slots}
+                          rowKey="id"
+                          size="small"
+                          pagination={{ pageSize: 10, showSizeChanger: true }}
+                          columns={[
+                            {
+                              title: "章节",
+                              dataIndex: "section_path",
+                              key: "section_path",
+                              width: 200,
+                              ellipsis: true,
+                              render: (v: string | null) => v || "-",
+                            },
+                            {
+                              title: "位置类型",
+                              dataIndex: "slot_type",
+                              key: "slot_type",
+                              width: 110,
+                              render: (v: string) => {
+                                const labels: Record<string, string> = {
+                                  paragraph: "段落",
+                                  table_cell: "表格单元格",
+                                  placeholder: "占位符",
+                                  heading_section: "标题章节",
+                                  section_append: "章节末尾追加",
+                                };
+                                return <Tag>{labels[v] || v}</Tag>;
+                              },
+                            },
+                            {
+                              title: "预期内容",
+                              dataIndex: "expected_content_type",
+                              key: "expected_content_type",
+                              width: 130,
+                              ellipsis: true,
+                              render: (v: string | null) => v || "-",
+                            },
+                            {
+                              title: "填充策略",
+                              dataIndex: "fill_strategy",
+                              key: "fill_strategy",
+                              width: 100,
+                              render: (v: string) => {
+                                const labels: Record<string, string> = {
+                                  replace: "替换",
+                                  append: "追加",
+                                  cell_fill: "单元格填充",
+                                  section_append: "章节末尾追加",
+                                };
+                                return labels[v] || v;
+                              },
+                            },
+                            {
+                              title: "置信度",
+                              dataIndex: "confidence",
+                              key: "confidence",
+                              width: 90,
+                              render: (v: number) => {
+                                const pct = Math.round(v * 100);
+                                const color = v >= 0.8 ? "green" : v >= 0.5 ? "orange" : "red";
+                                return <Tag color={color}>{pct}%</Tag>;
+                              },
+                            },
+                            {
+                              title: "依据",
+                              dataIndex: "evidence",
+                              key: "evidence",
+                              ellipsis: true,
+                              width: 200,
+                              render: (v: string | null) => v || "-",
+                            },
+                          ]}
+                        />
+                      )}
+                    </Card>
+                  </>
+                )}
+              </div>
             ),
           },
         ]}

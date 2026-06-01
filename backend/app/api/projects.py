@@ -1,9 +1,18 @@
 """项目 API — 创建、查询、编辑、删除投标项目。"""
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.models.project import ProjectCreate, ProjectTransitionRequest, ProjectUpdate, ProjectResponse, ProjectListResponse
 from app.gateway.supabase_gateway import SupabaseGateway
+from app.services.document_service import parse_and_store_document, detect_and_store_sections
+from app.services.template_slot_service import generate_template_slots
+from app.services.llm_classifier_service import classify_template_slots
+from app.services.tender_parser import parse_tender_document
+from app.services.requirement_extraction_service import extract_requirements_from_document
+
+logger = logging.getLogger(__name__)
 
 projects_router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -107,3 +116,66 @@ async def transition_project(project_id: str, body: ProjectTransitionRequest):
         )
 
     return result
+
+
+@projects_router.post("/{project_id}/start-parsing")
+async def start_parsing(project_id: str):
+    """开始解析：并行解析招标文件和投标模板，完成后状态从 draft 流转到 pending_confirmation。
+
+    招标文件 → parse-tender → extract-requirements
+    投标模板 → parse → detect-sections → generate-slots → classify-slots
+    """
+    gw = SupabaseGateway()
+    project = gw.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    if project.get("status") != "draft":
+        raise HTTPException(status_code=409, detail="仅 draft 状态的项目可以开始解析")
+
+    documents = gw.get_documents_by_project(project_id)
+    if not documents:
+        raise HTTPException(status_code=400, detail="请先上传招标文件和投标模板")
+
+    tender_docs = [d for d in documents if d.get("document_type") == "tender_doc"]
+    bid_template = next((d for d in documents if d.get("document_type") == "bid_template"), None)
+
+    if not bid_template:
+        raise HTTPException(status_code=400, detail="请先上传投标模板（.docx）")
+
+    results: dict[str, list[str]] = {"tender_docs": [], "bid_template": [], "errors": []}
+
+    # 1) 解析招标文件
+    for doc in tender_docs:
+        doc_id = doc["id"]
+        try:
+            await parse_tender_document(doc_id)
+            await extract_requirements_from_document(doc_id)
+            results["tender_docs"].append(doc_id)
+        except Exception as e:
+            logger.error(f"解析招标文件 {doc_id} 失败: {e}")
+            results["errors"].append(f"招标文件 {doc['name']} 解析失败: {e}")
+
+    # 2) 解析投标模板
+    template_id = bid_template["id"]
+    try:
+        await parse_and_store_document(template_id)
+        await detect_and_store_sections(template_id)
+        await generate_template_slots(template_id)
+        await classify_template_slots(template_id)
+        results["bid_template"].append(template_id)
+    except Exception as e:
+        logger.error(f"解析投标模板 {template_id} 失败: {e}")
+        results["errors"].append(f"投标模板解析失败: {e}")
+        raise HTTPException(status_code=500, detail=f"投标模板解析失败: {e}")
+
+    # 3) 状态流转
+    gw.transition_project_status(project_id, "draft", "pending_confirmation")
+
+    return {
+        "message": "解析完成",
+        "project_id": project_id,
+        "tender_docs_parsed": len(results["tender_docs"]),
+        "template_parsed": True,
+        "errors": results["errors"],
+    }

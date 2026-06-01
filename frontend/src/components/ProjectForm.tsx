@@ -59,7 +59,7 @@ export default function ProjectForm({ project }: Props) {
       } else {
         const newProject = await api.post<Project>("/api/projects", body);
         message.success("项目创建成功");
-        router.push(`/projects/${newProject.id}/edit`);
+        router.push(`/projects/${newProject.id}`);
         return;
       }
       router.push("/projects");

@@ -4,9 +4,6 @@ import { useState } from "react";
 import { Layout, Menu, theme } from "antd";
 import {
   ProjectOutlined,
-  FolderOpenOutlined,
-  FileTextOutlined,
-  SettingOutlined,
 } from "@ant-design/icons";
 import { useRouter, usePathname } from "next/navigation";
 import UnfinishedBadge from "@/components/UnfinishedBadge";
@@ -18,21 +15,6 @@ const menuItems = [
     key: "/projects",
     icon: <ProjectOutlined />,
     label: "投标项目",
-  },
-  {
-    key: "/knowledge",
-    icon: <FolderOpenOutlined />,
-    label: "知识库",
-  },
-  {
-    key: "/experiences",
-    icon: <FileTextOutlined />,
-    label: "经验管理",
-  },
-  {
-    key: "/settings",
-    icon: <SettingOutlined />,
-    label: "系统设置",
   },
 ];
 

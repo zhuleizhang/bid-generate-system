@@ -1,6 +1,6 @@
 """项目文件上传 API — 多文件上传、类型检测与存储。"""
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Body
 
 from app.models.project_file import FileUploadItem, FilesUploadResponse, ProjectFileItem, ProjectFilesResponse
 from app.gateway.supabase_gateway import SupabaseGateway
@@ -154,3 +154,47 @@ async def upload_project_files(
         success_count=success_count,
         failed_count=failed_count,
     )
+
+
+@project_files_router.delete("/{project_id}/files/{file_id}")
+async def delete_project_file(project_id: str, file_id: str):
+    """删除项目下的文件及其关联的解析数据。"""
+    gw = SupabaseGateway()
+
+    project = gw.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    doc = gw.get_document(file_id)
+    if not doc or doc.get("project_id") != project_id:
+        raise HTTPException(status_code=404, detail="文件不存在或不属于该项目")
+
+    try:
+        gw.delete_document(file_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
+
+    return {"message": "文件已删除"}
+
+
+@project_files_router.patch("/{project_id}/files/{file_id}")
+async def update_project_file(project_id: str, file_id: str, body: dict = Body(...)):
+    """更新文件的 document_type。"""
+    gw = SupabaseGateway()
+
+    project = gw.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    doc = gw.get_document(file_id)
+    if not doc or doc.get("project_id") != project_id:
+        raise HTTPException(status_code=404, detail="文件不存在或不属于该项目")
+
+    doc_type = body.get("document_type")
+    if not doc_type or doc_type not in ("bid_template", "tender_doc", "company_material"):
+        raise HTTPException(status_code=400, detail="无效的 document_type")
+
+    try:
+        return gw.update_document(file_id, {"document_type": doc_type})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
